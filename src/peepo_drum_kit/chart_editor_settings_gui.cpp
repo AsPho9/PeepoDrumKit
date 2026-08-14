@@ -1012,7 +1012,14 @@ namespace PeepoDrumKit
 							SettingsGui::WidgetType::I32_AudioBufferFrameSize),
 					};
 
+					// NOTE: Same layout as the Playtest tab, otherwise the settings table would fill the whole height
+					//		 and push the audio backend / ASIO section below out of the visible area.
+					Gui::BeginChild("AudioSettingsEntries", { 0.0f, Gui::GetContentRegionAvail().y * 0.45f }, false);
 					changesWereMade |= SettingsGui::DrawEntriesListTableGui(settingsEntriesAudio, ArrayCount(settingsEntriesAudio), nullptr, lastActiveGroup);
+
+					Gui::EndChild();
+					Gui::Separator();
+					Gui::BeginChild("AudioSettingsBackend", Gui::GetContentRegionAvail(), false);
 
 					// NOTE: Audio backend selection
 					{
@@ -1059,6 +1066,7 @@ namespace PeepoDrumKit
 							}
 						}
 					}
+					Gui::EndChild();
 				}
 				Gui::PopStyleVar();
 				Gui::EndTabItem();
