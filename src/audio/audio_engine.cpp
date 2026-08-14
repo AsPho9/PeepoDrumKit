@@ -3,6 +3,7 @@
 #include "audio_backend.h"
 #include "core_io.h"
 #include <mutex>
+#include <Windows.h>
 
 namespace Audio
 {
@@ -19,6 +20,8 @@ namespace Audio
 		case Backend::WASAPI_Shared:
 		case Backend::WASAPI_Exclusive:
 			return std::make_unique<WASAPIBackend>();
+		case Backend::ASIO:
+			return std::make_unique<ASIOBackend>();
 		}
 
 		assert(false);
@@ -92,6 +95,7 @@ namespace Audio
 
 		Backend CurrentBackendType = {};
 		std::unique_ptr<IAudioBackend> CurrentBackend = nullptr;
+		std::string ASIODeviceName = {};
 
 	public:
 		std::mutex VoiceRenderMutex;
@@ -491,6 +495,15 @@ namespace Audio
 		assert(impl == nullptr && "ApplicationStartup() has already been called (?)");
 		impl = std::make_unique<Impl>();
 
+		// NOTE: Prevent Windows from throttling this process' CPU when the window is minimized or
+		//		 in the background. Such throttling can starve the audio render callback thread and
+		//		 cause audible crackling until the window is brought back into the foreground.
+		PROCESS_POWER_THROTTLING_STATE powerThrottling = {};
+		powerThrottling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+		powerThrottling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+		powerThrottling.StateMask = 0;
+		::SetProcessInformation(::GetCurrentProcess(), ::ProcessPowerThrottling, &powerThrottling, sizeof(powerThrottling));
+
 		SetBackend(Backend::Default);
 		impl->ChannelMixer.TargetChannels = OutputChannelCount;
 		impl->ChannelMixer.MixingBehavior = ChannelMixingBehavior::Combine;
@@ -514,6 +527,7 @@ namespace Audio
 		streamParam.ChannelCount = OutputChannelCount;
 		streamParam.DesiredFrameCount = impl->TargetBufferFrameSize;
 		streamParam.ShareMode = (impl->CurrentBackendType == Backend::WASAPI_Exclusive) ? StreamShareMode::Exclusive : StreamShareMode::Shared;
+		streamParam.ASIODriverName = impl->ASIODeviceName.c_str();
 
 		if (impl->CurrentBackend == nullptr)
 			impl->CurrentBackend = CreateBackendInterface(impl->CurrentBackendType);
@@ -555,10 +569,10 @@ namespace Audio
 
 		OpenStartStream();
 
-		const b8 exclusiveAndFailedToStart = (impl->CurrentBackendType == Backend::WASAPI_Exclusive && !GetIsStreamOpenRunning());
-		if (exclusiveAndFailedToStart)
+		// NOTE: Because *any* audio is probably always better than *no* audio
+		const b8 nonWASAPISharedAndFailedToStart = (impl->CurrentBackendType != Backend::WASAPI_Shared && !GetIsStreamOpenRunning());
+		if (nonWASAPISharedAndFailedToStart)
 		{
-			// NOTE: Because *any* audio is probably always better than *no* audio
 			SetBackend(Backend::WASAPI_Shared);
 			OpenStartStream();
 		}
@@ -750,6 +764,16 @@ namespace Audio
 	b8 AudioEngine::GetIsStreamOpenRunning() const
 	{
 		return impl->IsStreamOpenRunning;
+	}
+
+	std::string_view AudioEngine::GetASIODevice() const
+	{
+		return impl->ASIODeviceName;
+	}
+
+	void AudioEngine::SetASIODevice(std::string_view driverName)
+	{
+		impl->ASIODeviceName = driverName;
 	}
 
 	b8 AudioEngine::GetAllVoicesAreIdle() const

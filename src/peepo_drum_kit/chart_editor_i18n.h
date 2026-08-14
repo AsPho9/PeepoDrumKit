@@ -47,6 +47,9 @@ X("TAB_CHART_STATS",								"Chart Stats") \
 X("TAB_TJA_EXPORT_DEBUG_VIEW",						"TJA Export Debug View") \
 X("TAB_TJA_IMPORT_TEST",							"TJA Import Test") \
 X("TAB_AUDIO_TEST",									"Audio Test") \
+/* playtest */ \
+X("PLAYTEST_START",									"Start Playtest") \
+X("PLAYTEST_STOP",									"Stop Playtest") \
 /* menu names */ \
 X("MENU_FILE",										"File") \
 X("MENU_EDIT",										"Edit") \

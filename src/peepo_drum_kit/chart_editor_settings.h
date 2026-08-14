@@ -129,6 +129,10 @@ namespace PeepoDrumKit
 		{
 			WithDefault<std::string> DefaultCreatorName = {};
 			WithDefault<i32> DrumrollAutoHitBarDivision = 16;
+			WithDefault<i32> PlaytestJudgementWindowGoodMS = 40;
+			WithDefault<i32> PlaytestJudgementWindowOkMS = 100;
+			WithDefault<f32> PlaytestJudgementPositionOffsetX = 0.0f;
+			WithDefault<f32> PlaytestJudgementPositionOffsetY = 0.0f;
 			WithDefault<b8> DisplayTimeInSongSpace = false;
 			WithDefault<b8> TimelineScrollInvertMouseWheel = false;
 			WithDefault<f32> TimelineScrollDistancePerMouseWheelTick = 100.0f;
@@ -159,7 +163,9 @@ namespace PeepoDrumKit
 		{
 			WithDefault<b8> OpenDeviceOnStartup = true;
 			WithDefault<b8> CloseDeviceOnIdleFocusLoss = false;
-			WithDefault<b8> RequestExclusiveDeviceAccess = false;
+			// NOTE: Maps directly to Audio::Backend (0 = WASAPI Shared, 1 = WASAPI Exclusive, 2 = ASIO)
+			WithDefault<i32> AudioBackend = 0;
+			WithDefault<std::string> AudioASIODeviceName = {};
 			WithDefault<i32> BufferFrameSize = 0;
 		} Audio;
 
@@ -277,6 +283,10 @@ namespace PeepoDrumKit
 			WithDefault<MultiInputBinding> Timeline_SetPlaybackSpeed_25 = { KeyBinding(ImGuiKey_0) };
 			WithDefault<MultiInputBinding> Timeline_TogglePlayback = { KeyBinding(ImGuiKey_Space) };
 			WithDefault<MultiInputBinding> Timeline_ToggleMetronome = { KeyBinding(ImGuiKey_M) };
+			WithDefault<MultiInputBinding> Timeline_TogglePlaytest = { KeyBinding(ImGuiKey_F5) };
+			// NOTE: Keys used to hit notes while a playtest is active (defaults to the Don/Ka note placement keys so old behavior is preserved)
+			WithDefault<MultiInputBinding> Playtest_HitDon = { KeyBinding(ImGuiKey_F), KeyBinding(ImGuiKey_J) };
+			WithDefault<MultiInputBinding> Playtest_HitKa = { KeyBinding(ImGuiKey_D), KeyBinding(ImGuiKey_K) };
 
 			WithDefault<MultiInputBinding> TempoCalculator_Tap = { KeyBinding(ImGuiKey_Space) };
 			WithDefault<MultiInputBinding> TempoCalculator_Reset = { KeyBinding(ImGuiKey_Escape) };

@@ -51,7 +51,8 @@ namespace PeepoDrumKit
 		}
 	}
 
-	static b8 GlobalLastSetRequestExclusiveDeviceAccessAudioSetting = {};
+	static i32 GlobalLastSetAudioBackendSetting = {};
+	static std::string GlobalLastSetAudioASIODeviceNameSetting = {};
 	static i32 GlobalLastSetAudioBufferFrameSize = {};
 
 	ChartEditor::ChartEditor()
@@ -64,8 +65,10 @@ namespace PeepoDrumKit
 		context.SetSelectedChart(context.Chart.Courses.emplace_back(std::make_unique<ChartCourse>()).get(), BranchType::Normal);
 		SetChartDefaultSettingsAndCourses(context.Chart);
 
-		GlobalLastSetRequestExclusiveDeviceAccessAudioSetting = *Settings.Audio.RequestExclusiveDeviceAccess;
-		Audio::Engine.SetBackend(*Settings.Audio.RequestExclusiveDeviceAccess ? Audio::Backend::WASAPI_Exclusive : Audio::Backend::WASAPI_Shared);
+		GlobalLastSetAudioBackendSetting = Clamp<i32>(*Settings.Audio.AudioBackend, 0, EnumCount<Audio::Backend> - 1);
+		GlobalLastSetAudioASIODeviceNameSetting = *Settings.Audio.AudioASIODeviceName;
+		Audio::Engine.SetBackend(static_cast<Audio::Backend>(GlobalLastSetAudioBackendSetting));
+		Audio::Engine.SetASIODevice(*Settings.Audio.AudioASIODeviceName);
 		Audio::Engine.SetBufferFrameSize(*Settings.Audio.BufferFrameSize);
 		Audio::Engine.SetMasterVolume(0.75f);
 		if (*Settings.Audio.OpenDeviceOnStartup)
@@ -508,10 +511,10 @@ namespace PeepoDrumKit
 				Gui::EndMenu();
 			}
 
-			static constexpr Audio::Backend availableBackends[] = { Audio::Backend::WASAPI_Shared, Audio::Backend::WASAPI_Exclusive, };
+			static constexpr Audio::Backend availableBackends[] = { Audio::Backend::WASAPI_Shared, Audio::Backend::WASAPI_Exclusive, Audio::Backend::ASIO };
 			static constexpr auto backendToString = [](Audio::Backend backend) -> cstr
 			{
-				return (backend == Audio::Backend::WASAPI_Shared) ? "WASAPI Shared" : (backend == Audio::Backend::WASAPI_Exclusive) ? "WASAPI Exclusive" : "Invalid";
+				return (backend == Audio::Backend::WASAPI_Shared) ? "WASAPI Shared" : (backend == Audio::Backend::WASAPI_Exclusive) ? "WASAPI Exclusive" : (backend == Audio::Backend::ASIO) ? "ASIO" : "Invalid";
 			};
 
 			char performanceTextBuffer[64];
@@ -861,10 +864,29 @@ namespace PeepoDrumKit
 		UpdateApplicationWindowTitle(context);
 
 		// NOTE: Check for external changes made via the settings window
-		if (GlobalLastSetRequestExclusiveDeviceAccessAudioSetting != *Settings.Audio.RequestExclusiveDeviceAccess)
 		{
-			Audio::Engine.SetBackend(*Settings.Audio.RequestExclusiveDeviceAccess ? Audio::Backend::WASAPI_Exclusive : Audio::Backend::WASAPI_Shared);
-			GlobalLastSetRequestExclusiveDeviceAccessAudioSetting = *Settings.Audio.RequestExclusiveDeviceAccess;
+			const i32 backendSetting = Clamp<i32>(*Settings.Audio.AudioBackend, 0, EnumCount<Audio::Backend> - 1);
+			const b8 backendChanged = (GlobalLastSetAudioBackendSetting != backendSetting);
+			const b8 asioDeviceChanged = (GlobalLastSetAudioASIODeviceNameSetting != *Settings.Audio.AudioASIODeviceName);
+
+			if (backendChanged)
+				GlobalLastSetAudioBackendSetting = backendSetting;
+			if (asioDeviceChanged)
+				GlobalLastSetAudioASIODeviceNameSetting = *Settings.Audio.AudioASIODeviceName;
+
+			// NOTE: Reopen the stream so a backend / ASIO device change actually takes effect.
+			//		 Apply the ASIO device name *before* (re)opening so an ASIO stream never gets
+			//		 opened with an empty/stale driver name.
+			//		 EnsureStreamRunning() also falls back to WASAPI (Shared) if the new backend fails,
+			//		 so the user keeps getting audio instead of a dead 'Audio Device Closed' stream.
+			if (backendChanged || asioDeviceChanged)
+			{
+				Audio::Engine.SetASIODevice(*Settings.Audio.AudioASIODeviceName);
+				if (Audio::Engine.GetIsStreamOpenRunning())
+					Audio::Engine.StopCloseStream();
+				Audio::Engine.SetBackend(static_cast<Audio::Backend>(backendSetting));
+				Audio::Engine.EnsureStreamRunning();
+			}
 		}
 		if (GlobalLastSetAudioBufferFrameSize != *Settings.Audio.BufferFrameSize)
 		{
@@ -1049,6 +1071,20 @@ namespace PeepoDrumKit
 
 		if (Gui::Begin(UI_WindowName("TAB_GAME_PREVIEW"), nullptr, ImGuiWindowFlags_None))
 		{
+			if (Gui::Button(context.Playtest.IsActive ? UI_Str("PLAYTEST_STOP") : UI_Str("PLAYTEST_START")))
+			{
+				if (context.Playtest.IsActive)
+					context.Playtest.Stop(context);
+				else
+					context.Playtest.Start(context);
+			}
+			if (context.Playtest.IsActive)
+			{
+				Gui::SameLine();
+				char playtestStatusBuffer[128];
+				sprintf_s(playtestStatusBuffer, "Combo %d | GOOD %d | OK %d | BAD %d", context.Playtest.Combo, context.Playtest.GoodCount, context.Playtest.OkCount, context.Playtest.BadCount);
+				Gui::TextUnformatted(playtestStatusBuffer);
+			}
 			gamePreview.DrawGui(context, timeline.Camera.WorldSpaceXToTime(timeline.WorldSpaceCursorXAnimationCurrent));
 		}
 		Gui::End();

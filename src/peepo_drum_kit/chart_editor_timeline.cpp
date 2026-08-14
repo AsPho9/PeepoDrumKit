@@ -2242,6 +2242,41 @@ namespace PeepoDrumKit
 		MousePosLastFrame = MousePosThisFrame;
 		MousePosThisFrame = Gui::GetMousePos();
 
+		// NOTE: Playtest toggle
+		if (Gui::IsAnyPressed(*Settings.Input.Timeline_TogglePlaytest, false, InputModifierBehavior::Relaxed))
+		{
+			if (context.Playtest.IsActive)
+				context.Playtest.Stop(context);
+			else
+				context.Playtest.Start(context);
+		}
+
+		// NOTE: While a playtest is active, route the Don/Ka keys as playtest hits and skip all timeline editing input
+		if (context.Playtest.IsActive)
+		{
+			if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitDon, false, InputModifierBehavior::Relaxed))
+				context.Playtest.OnHit(context, false);
+			if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitKa, false, InputModifierBehavior::Relaxed))
+				context.Playtest.OnHit(context, true);
+
+			context.Playtest.Update(context);
+
+			// NOTE: Keep the timeline following the playtest playback so the user can see (and quickly jump to) the part being played
+			if (Audio::Engine.GetIsStreamOpenRunning())
+			{
+				const Time cursorTime = context.GetCursorTime();
+				if (IsTimelineCursorVisibleOnScreen(Camera, Regions, cursorTime) && Camera.TimeToLocalSpaceX(cursorTime) >= Round(Regions.Content.GetWidth() * TimelineAutoScrollLockContentWidthFactor))
+				{
+					const Time elapsedCursorTime = Time::FromSec(Gui::DeltaTime()) * context.GetPlaybackSpeed();
+					const f32 cameraScrollIncrement = Camera.TimeToWorldSpaceX(elapsedCursorTime) * Camera.ZoomCurrent.x;
+					Camera.PositionCurrent.x += cameraScrollIncrement;
+					Camera.PositionTarget.x += cameraScrollIncrement;
+				}
+			}
+
+			return;
+		}
+
 		// NOTE: Mouse scroll / zoom
 		if (!ApproxmiatelySame(Gui::GetIO().MouseWheel, 0.0f))
 		{
@@ -3001,8 +3036,8 @@ namespace PeepoDrumKit
 				context.SfxVoicePool.PlaySound(SoundEffectType::MetronomeBeat);
 		}
 
-		// NOTE: Playback preview sounds / metronome
-		if (context.GetIsPlayback() && (PlaybackSoundsEnabled || Metronome.IsEnabled))
+		// NOTE: Playback preview sounds / metronome (disabled while a playtest is active, hits are played manually instead)
+		if (!context.Playtest.IsActive && context.GetIsPlayback() && (PlaybackSoundsEnabled || Metronome.IsEnabled))
 			UpdateTimelinePlaybackAndMetronomneSounds(context, PlaybackSoundsEnabled, Metronome);
 
 		// NOTE: Mouse selection box

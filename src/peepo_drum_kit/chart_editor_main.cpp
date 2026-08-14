@@ -1,5 +1,6 @@
 #include "core_types.h"
 #include "core_string.h"
+#include "core_io.h"
 #include "chart_editor.h"
 #include "chart_editor_settings.h"
 #include "chart_editor_i18n.h"
@@ -104,6 +105,28 @@ namespace PeepoDrumKit
 	{
 		// TODO: Parse arguments and write into global argv settings struct
 		// auto[argc, argv] = CommandLine::GetCommandLineUTF8();
+
+		// NOTE: The program relies on its "assets" folder being reachable from the current working directory,
+		// so when launched from elsewhere (e.g. directly running the exe in a build output folder) search upwards from the exe directory.
+		{
+			constexpr cstr AssetsFolderName = "assets";
+			if (!Directory::Exists(AssetsFolderName))
+			{
+				std::string directory = Path::CopyAndNormalize(Directory::GetExecutableDirectory());
+				while (!directory.empty())
+				{
+					if (Directory::Exists(directory + "/" + AssetsFolderName))
+					{
+						Directory::SetWorkingDirectory(directory);
+						break;
+					}
+					const std::string parent = std::string(Path::GetDirectoryName(directory));
+					if (parent == directory)
+						break;
+					directory = parent;
+				}
+			}
+		}
 
 		while (true)
 		{

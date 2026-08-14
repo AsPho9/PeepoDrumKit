@@ -20,13 +20,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -43,12 +43,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <OutDir>$(SolutionDir)build\bin\$(Platform)-$(Configuration)\</OutDir>
+    <OutDir>$(SolutionDir)build\bin\</OutDir>
     <IntDir>$(SolutionDir)build\bin-int\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <TargetName>PeepoDrumKit_Debug</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <OutDir>$(SolutionDir)build\bin\$(Platform)-$(Configuration)\</OutDir>
+    <OutDir>$(SolutionDir)build\bin\</OutDir>
     <IntDir>$(SolutionDir)build\bin-int\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <TargetName>PeepoDrumKit</TargetName>
   </PropertyGroup>
@@ -68,7 +68,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>Shlwapi.lib;d3d11.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Shlwapi.lib;d3d11.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/pdbaltpath:%_PDB% %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -92,7 +92,7 @@
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>Shlwapi.lib;d3d11.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Shlwapi.lib;d3d11.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalOptions>/pdbaltpath:%_PDB% %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -105,6 +105,7 @@
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Default</BasicRuntimeChecks>
     </ClCompile>
     <ClCompile Include="src\audio\audio_backend_wasapi.cpp" />
+    <ClCompile Include="src\audio\audio_backend_asio.cpp" />
     <ClCompile Include="src\audio\audio_file_formats_vorbis.c">
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Default</BasicRuntimeChecks>
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">MaxSpeed</Optimization>
@@ -135,6 +136,7 @@
     <ClCompile Include="src\peepo_drum_kit\chart_editor_widgets.cpp" />
     <ClCompile Include="src\peepo_drum_kit\chart_editor_widgets_game.cpp" />
     <ClCompile Include="src\peepo_drum_kit\chart_editor_sound.cpp" />
+    <ClCompile Include="src\peepo_drum_kit\chart_editor_playtest.cpp" />
     <ClCompile Include="src\peepo_drum_kit\chart_editor_main.cpp" />
     <ClCompile Include="src\peepo_drum_kit\chart_editor_timeline.cpp" />
     <ClCompile Include="src\peepo_drum_kit\chart_editor_settings.cpp" />
@@ -183,6 +185,7 @@
     <ClInclude Include="src\imgui\imgui_include.h" />
     <ClInclude Include="src\peepo_drum_kit\chart_editor_context.h" />
     <ClInclude Include="src\peepo_drum_kit\chart_editor_sound.h" />
+    <ClInclude Include="src\peepo_drum_kit\chart_editor_playtest.h" />
     <ClInclude Include="src\peepo_drum_kit\test_gui_audio.h" />
     <ClInclude Include="src\peepo_drum_kit\chart.h" />
     <ClInclude Include="src\peepo_drum_kit\chart_editor.h" />

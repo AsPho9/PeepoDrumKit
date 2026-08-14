@@ -3,6 +3,7 @@
 #include "core_undo.h"
 #include "chart.h"
 #include "chart_editor_sound.h"
+#include "chart_editor_playtest.h"
 #include "chart_editor_graphics.h"
 #include "audio/audio_engine.h"
 #include "audio/audio_waveform.h"
@@ -49,6 +50,8 @@ namespace PeepoDrumKit
 		Audio::WaveformMipChain SongWaveformR;
 		f32 SongWaveformFadeAnimationCurrent = 0.0f;
 		f32 SongWaveformFadeAnimationTarget = 0.0f;
+
+		ChartPlaytest Playtest;
 
 		Undo::UndoHistory Undo;
 

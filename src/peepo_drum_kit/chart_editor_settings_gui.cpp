@@ -1,4 +1,5 @@
 ﻿#include "chart_editor_settings_gui.h"
+#include "audio/audio_backend.h"
 
 namespace PeepoDrumKit
 {
@@ -705,6 +706,26 @@ namespace PeepoDrumKit
 							SettingsGui::WidgetType::I32_BarDivisionComboBox),
 
 						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementWindowGoodMS,
+							"Playtest: Good Judgement Window (ms)",
+							"The maximum offset in milliseconds from a note for a hit to be judged as Good while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementWindowOkMS,
+							"Playtest: Ok Judgement Window (ms)",
+							"The maximum offset in milliseconds from a note for a hit to be judged as Ok while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementPositionOffsetX,
+							"Playtest: Judgement Position X",
+							"The horizontal (pixel) offset of the judgement text relative to its default position while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementPositionOffsetY,
+							"Playtest: Judgement Position Y",
+							"The vertical (pixel) offset of the judgement text relative to its default position while playtesting."),
+
+						SettingsGui::SettingsEntry(
 							settings.General.DisplayTimeInSongSpace,
 							"General: Time Display Space",
 							"Display time in either Chart Space (normalized starting at 00:00.000) or in Song Space (relative to song offset).",
@@ -857,6 +878,9 @@ namespace PeepoDrumKit
 						{ &settings.Input.Timeline_SetPlaybackSpeed_25, "Timeline: Set Playback Speed 25%", },
 						{ &settings.Input.Timeline_TogglePlayback, "Timeline: Toggle Playback", },
 						{ &settings.Input.Timeline_ToggleMetronome, "Timeline: Toggle Metronome", },
+						{ &settings.Input.Timeline_TogglePlaytest, "Timeline: Toggle Playtest", },
+						{ &settings.Input.Playtest_HitDon, "Playtest: Hit Don", },
+						{ &settings.Input.Playtest_HitKa, "Playtest: Hit Ka", },
 						{},
 						{ &settings.Input.TempoCalculator_Tap, "Tempo Calculator: Tap", },
 						{ &settings.Input.TempoCalculator_Reset, "Tempo Calculator: Reset", },
@@ -891,13 +915,6 @@ namespace PeepoDrumKit
 							"Automatically close the audio session when loosing window focus and while not playing any sounds."),
 
 						SettingsGui::SettingsEntry(
-							settings.Audio.RequestExclusiveDeviceAccess,
-							"Low-Latency Exclusive Mode",
-							"Reduce audio latency by requesting exlusive device access.\n"
-							"This will prevent all *other* applications from playing back or recording audio.",
-							SettingsGui::WidgetType::B8_ExclusiveAudioComboBox),
-
-						SettingsGui::SettingsEntry(
 							settings.Audio.BufferFrameSize,
 							"Buffer Frame Size",
 							"Prevent audio distortion by requesting sufficient buffer size (adding audio latency).\n"
@@ -906,6 +923,52 @@ namespace PeepoDrumKit
 					};
 
 					changesWereMade |= SettingsGui::DrawEntriesListTableGui(settingsEntriesAudio, ArrayCount(settingsEntriesAudio), nullptr, lastActiveGroup);
+
+					// NOTE: Audio backend selection
+					{
+						Audio::Backend backendValue = static_cast<Audio::Backend>(Clamp<i32>(*settings.Audio.AudioBackend, 0, EnumCount<Audio::Backend> - 1));
+						if (Gui::ComboEnum("Audio Backend", &backendValue, Audio::BackendNames))
+						{
+							*settings.Audio.AudioBackend = static_cast<i32>(backendValue);
+							changesWereMade = true;
+						}
+						Gui::TextDisabled("WASAPI (Shared) is the default. ASIO requires an installed ASIO driver (e.g. FlexASIO, ASIO4ALL or a hardware driver).");
+
+						if (backendValue == Audio::Backend::ASIO)
+						{
+							const std::vector<Audio::ASIODriverInfo> asioDrivers = Audio::ASIOEnumerateDrivers();
+							const std::string& currentDriverName = *settings.Audio.AudioASIODeviceName;
+
+							cstr previewText = "None";
+							for (const Audio::ASIODriverInfo& driver : asioDrivers)
+							{
+								if (driver.Name == currentDriverName)
+								{
+									previewText = driver.DisplayName.c_str();
+									break;
+								}
+							}
+
+							if (Gui::BeginCombo("ASIO Driver", previewText))
+							{
+								for (const Audio::ASIODriverInfo& driver : asioDrivers)
+								{
+									const b8 isSelected = (driver.Name == currentDriverName);
+									if (Gui::Selectable(driver.DisplayName.c_str(), isSelected))
+									{
+										*settings.Audio.AudioASIODeviceName = driver.Name;
+										changesWereMade = true;
+									}
+								}
+								Gui::EndCombo();
+							}
+
+							if (asioDrivers.empty())
+							{
+								Gui::TextColored(ImVec4(1.0f, 0.6f, 0.6f, 1.0f), "No ASIO drivers were found. Install one (e.g. FlexASIO) and restart the program.");
+							}
+						}
+					}
 				}
 				Gui::PopStyleVar();
 				Gui::EndTabItem();

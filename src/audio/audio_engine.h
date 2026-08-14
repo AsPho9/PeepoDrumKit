@@ -84,6 +84,7 @@ namespace Audio
 	{
 		WASAPI_Shared,
 		WASAPI_Exclusive,
+		ASIO,
 		Count,
 		// TEMP: Switching to shared during early developement where there isn't actually any charting to do yet
 		// Default = WASAPI_Exclusive,
@@ -94,6 +95,7 @@ namespace Audio
 	{
 		"WASAPI (Shared)",
 		"WASAPI (Exclusive)",
+		"ASIO",
 	};
 
 	enum class PanLaw : u8
@@ -133,7 +135,9 @@ namespace Audio
 		static constexpr size_t MaxLoadedSources = 256;
 
 		static constexpr u32 OutputChannelCount = 2;
-		static constexpr u32 OutputSampleRate = 44100;
+		// NOTE: 48 kHz matches the native sample rate of most audio devices (including the
+		//		 Voicemeeter ASIO driver) which avoids crackling from an output rate mismatch.
+		static constexpr u32 OutputSampleRate = 48000;
 
 		static constexpr u32 DefaultBufferFrameCount = 64;
 		static constexpr u32 MinBufferFrameCount = 8;
@@ -181,6 +185,10 @@ namespace Audio
 	public:
 		Backend GetBackend() const;
 		void SetBackend(Backend value);
+
+		// NOTE: Name of the ASIO driver to use when the ASIO backend is active (empty string = no ASIO driver loaded)
+		std::string_view GetASIODevice() const;
+		void SetASIODevice(std::string_view driverName);
 
 		b8 GetIsStreamOpenRunning() const;
 		b8 GetAllVoicesAreIdle() const;

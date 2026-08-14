@@ -609,6 +609,8 @@ namespace PeepoDrumKit
 		drawList->PushClipRect(Camera.ScreenSpaceViewportRect.TL, Camera.ScreenSpaceViewportRect.BR, true);
 
 		i32 iLane = -1;
+		const b8 isPlaytest = context.Playtest.IsActive;
+		vec2 playtestHitCircleScreenPos = {};
 		for (auto it = cbegin(context.Chart.Courses); it != cend(context.Chart.Courses); ++it) {
 			const auto* course = it->get();
 			auto branch = BranchType::Normal;
@@ -626,8 +628,8 @@ namespace PeepoDrumKit
 
 			const b8 isPlayback = context.GetIsPlayback();
 			const BeatAndTime exactCursorBeatAndTime = context.GetCursorBeatAndTime(course, true);
-			const Time cursorTimeOrAnimated = isPlayback ? exactCursorBeatAndTime.Time : animatedCursorTime;
-			const Beat cursorBeatOrAnimatedTrunc = isPlayback ? exactCursorBeatAndTime.Beat : course->TempoMap.TimeToBeat(animatedCursorTime, true);
+			const Time cursorTimeOrAnimated = isPlayback ? exactCursorBeatAndTime.Time : (isPlaytest ? context.Playtest.CurrentTime : animatedCursorTime);
+			const Beat cursorBeatOrAnimatedTrunc = isPlayback ? exactCursorBeatAndTime.Beat : course->TempoMap.TimeToBeat(cursorTimeOrAnimated, true);
 			const f64 cursorHBScrollBeatOrAnimated = course->TempoMap.BeatAndTimeToHBScrollBeatTick(cursorBeatOrAnimatedTrunc, cursorTimeOrAnimated);
 			const Beat chartBeatDuration = course->TempoMap.TimeToBeat(context.Chart.GetDurationOrDefault());
 
@@ -690,6 +692,8 @@ namespace PeepoDrumKit
 			const vec2 hitCirclePosJPos = Camera.GetHitCircleCoordinatesJPOSScroll(jposScrollChanges, cursorTimeOrAnimated, tempoChanges);
 			const vec2 hitCirclePosLane = Camera.JPOSScrollToLaneSpace(hitCirclePosJPos);
 			const vec2 hitCirclePos = Camera.LaneToScreenSpace(hitCirclePosLane);
+			if (course == context.ChartSelectedCourse && branch == context.ChartSelectedBranch)
+				playtestHitCircleScreenPos = hitCirclePos;
 			if (gogoFireZoomAmount > 0) {
 				context.Gfx.DrawSprite(drawList, SprID::Game_Lane_GogoFire, SprTransform::FromCenter(
 					hitCirclePos,
@@ -759,7 +763,47 @@ namespace PeepoDrumKit
 
 				const Time timeSinceHeadHit = TimeSinceNoteHit(it.Time, cursorTimeOrAnimated);
 				const Time timeSinceTailHit = TimeSinceNoteHit(it.Tail.Time, cursorTimeOrAnimated);
-				if (IsRegularNote(it.OriginalNote->Type)) {
+				if (isPlaytest)
+				{
+					const auto* state = context.Playtest.TryGetNoteState(it.OriginalNote);
+					const b8 isHit = (state != nullptr && state->IsHit);
+					const b8 isMissed = (state != nullptr && state->IsMissed);
+					const b8 isCompleted = (state != nullptr && state->IsCompleted);
+
+					if (IsRegularNote(it.OriginalNote->Type)) {
+						if (isHit) {
+							laneHead = laneTail = hitCirclePosLane; // temporary value, override when drawn
+							if (timeSinceHeadHit > GetTotalGameNoteHitAnimationDuration(it.OriginalNote->Type))
+								isVisible = false;
+						}
+						else if (isMissed)
+							isVisible = false;
+						// NOTE: Un-hit notes keep scrolling past the judgement mark
+					}
+					else if (IsBalloonNote(it.OriginalNote->Type)) {
+						if (isHit && !isCompleted && !isMissed) {
+							if (timeSinceHeadHit >= Time::Zero())
+								laneHead = hitCirclePosLane;
+						}
+						else if (isCompleted)
+							isVisible = false;
+						else if (isMissed)
+							isVisible = false;
+					}
+					else { // is bar roll note
+						if (isHit && !isCompleted && !isMissed) {
+							if (timeSinceHeadHit >= Time::Zero())
+								laneHead = hitCirclePosLane;
+							isVisible = ((timeSinceHeadHit >= Time::Zero() && timeSinceTailHit <= GameNoteHitAnimationDuration)
+								|| Camera.IsRangeVisibleOnLane(Min(laneHead.x, laneTail.x), Max(laneHead.x, laneTail.x)));
+						}
+						else if (isCompleted || isMissed)
+							isVisible = false;
+						else
+							isVisible = Camera.IsRangeVisibleOnLane(Min(laneHead.x, laneTail.x), Max(laneHead.x, laneTail.x));
+					}
+				}
+				else if (IsRegularNote(it.OriginalNote->Type)) {
 					if (timeSinceHeadHit >= Time::Zero())
 						laneHead = laneTail = hitCirclePosLane; // temporary value, override when drawn
 					if (timeSinceHeadHit > GetTotalGameNoteHitAnimationDuration(it.OriginalNote->Type))
@@ -786,87 +830,181 @@ namespace PeepoDrumKit
 			const Beat drummrollHitInterval = GetGridBeatSnap(*Settings.General.DrumrollAutoHitBarDivision);
 			for (auto it = ReverseNoteDrawBuffer.rbegin(); it != ReverseNoteDrawBuffer.rend(); it++)
 			{
-				const Time timeSinceHit = TimeSinceNoteHit(it->NoteStartTime, cursorTimeOrAnimated);
+			const ChartPlaytest::NotePlayState* playState = isPlaytest ? context.Playtest.TryGetNoteState(it->OriginalNote) : nullptr;
+			const b8 noteIsHit = (playState != nullptr && playState->IsHit);
+			const Time timeSinceHit = noteIsHit
+				? TimeSinceNoteHit(playState->HitTime, cursorTimeOrAnimated)
+				: TimeSinceNoteHit(it->NoteStartTime, cursorTimeOrAnimated);
 
-				if (IsLongNote(it->OriginalNote->Type))
+			if (isPlaytest && playState != nullptr && IsLongNote(it->OriginalNote->Type) && !playState->IsCompleted && !playState->IsMissed)
+			{
+				// NOTE: Long note, drawn with the manual playtest hit progress instead of auto-hit sub-notes
+				if (IsBalloonNote(it->OriginalNote->Type))
 				{
-					if (IsBalloonNote(it->OriginalNote->Type))
-					{
-						if (IsFuseRoll(it->OriginalNote->Type))
-							DrawGamePreviewNoteDuration(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->OriginalNote->Type, 0xFFFFFFFF);
-						DrawGamePreviewNote(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated);
-						DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), {}, it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
-						if (timeSinceHit >= Time::Zero())
-							DrawGamePreviewNumericText(context.Gfx, Camera, drawList, SprTransform::FromCenter(Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), vec2(2)),
-								std::to_string(it->OriginalNote->BalloonPopCount).c_str(), 0xFFFFFFFF);
-					}
-					else
-					{
-						const i32 maxHitCount = (it->OriginalNote->BeatDuration.Ticks / drummrollHitInterval.Ticks);
-						const Beat hitIntervalRoundedDuration = (drummrollHitInterval * maxHitCount);
-
-						i32 drumrollHitsSoFar = 0;
-						if (timeSinceHit >= Time::Zero())
-						{
-							for (Beat subBeat = hitIntervalRoundedDuration; subBeat >= Beat::Zero(); subBeat -= drummrollHitInterval)
-							{
-								const Time subHitTime = course->TempoMap.BeatToTime(it->OriginalNote->BeatTime + subBeat) + it->OriginalNote->TimeOffset;
-								if (subHitTime <= cursorTimeOrAnimated)
-									drumrollHitsSoFar++;
-							}
-						}
-
-						const f32 hitPercentage = ConvertRangeClampOutput(0.0f, static_cast<f32>(ClampBot(maxHitCount, 4)), 0.0f, 1.0f, static_cast<f32>(drumrollHitsSoFar));
-						const u32 hitNoteColor = InterpolateDrumrollHitColor(it->OriginalNote->Type, hitPercentage);
-						DrawGamePreviewNoteDuration(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->OriginalNote->Type, hitNoteColor);
-						DrawGamePreviewNote(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated);
-						DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
-
-						if (timeSinceHit >= Time::Zero())
-						{
-							for (Beat subBeat = hitIntervalRoundedDuration; subBeat >= Beat::Zero(); subBeat -= drummrollHitInterval)
-							{
-								const Time subHitTime = course->TempoMap.BeatToTime(it->OriginalNote->BeatTime + subBeat) + it->OriginalNote->TimeOffset;
-								const Time timeSinceSubHit = TimeSinceNoteHit(subHitTime, cursorTimeOrAnimated);
-								// `>` to avoid displaying extra notes when editing (still fails sometimes)
-								if (timeSinceSubHit > Time::Zero() && timeSinceSubHit <= GameNoteHitAnimationDuration)
-								{
-									// TODO: Scale duration, animation speed and path by extended lane width
-									const auto hitAnimation = GetNoteHitPathAnimation(timeSinceSubHit, Camera.ExtendedLaneWidthFactor(), nLanes, iLane, it->OriginalNote->Type);
-									const vec2 laneOrigin = Camera.GetHitCircleCoordinatesLane(jposScrollChanges, subHitTime, tempoChanges);
-									const vec2 noteCenter = Camera.LaneToWorldSpace(laneOrigin.x, laneOrigin.y) + hitAnimation.PositionOffset;
-
-									if (hitAnimation.AlphaFadeOut >= 1.0f)
-										DrawGamePreviewNote(context.Gfx, Camera, drawList, noteCenter, it->Tempo, it->ScrollSpeed, ToBigNoteIf(NoteType::Don, IsBigNote(it->OriginalNote->Type)), cursorTimeOrAnimated, hitAnimation);
-								}
-							}
-						}
-					}
+					if (IsFuseRoll(it->OriginalNote->Type))
+						DrawGamePreviewNoteDuration(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->OriginalNote->Type, 0xFFFFFFFF);
+					DrawGamePreviewNote(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated);
+					DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), {}, it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
+					if (noteIsHit)
+						DrawGamePreviewNumericText(context.Gfx, Camera, drawList, SprTransform::FromCenter(Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), vec2(2)),
+							std::to_string(Max(0, it->OriginalNote->BalloonPopCount - playState->BalloonHits)).c_str(), 0xFFFFFFFF);
 				}
 				else
 				{
-					// TODO: Instead of offseting the lane x position just draw as HitCenter + PositionOffset directly (?)
-					auto hitAnimation = GetNoteHitPathAnimation(timeSinceHit, Camera.ExtendedLaneWidthFactor(), nLanes, iLane, it->OriginalNote->Type);
-					const vec2 noteOrigin = (timeSinceHit >= Time::Zero()) ? Camera.GetHitCircleCoordinatesLane(jposScrollChanges, it->NoteEndTime, tempoChanges) // keep flying note's start position
-						: vec2{ it->LaneHeadX, it->LaneHeadY };
-					const vec2 noteCenter = Camera.LaneToWorldSpace(noteOrigin.x, noteOrigin.y) + hitAnimation.PositionOffset;
+					const i32 maxHitCount = Max(1, it->OriginalNote->BeatDuration.Ticks / drummrollHitInterval.Ticks);
+					const f32 hitPercentage = ConvertRangeClampOutput(0.0f, static_cast<f32>(ClampBot(maxHitCount, 4)), 0.0f, 1.0f, static_cast<f32>(playState->DrumrollHits));
+					const u32 hitNoteColor = InterpolateDrumrollHitColor(it->OriginalNote->Type, hitPercentage);
+					DrawGamePreviewNoteDuration(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->OriginalNote->Type, hitNoteColor);
+					DrawGamePreviewNote(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated);
+					DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
+				}
 
-					if (hitAnimation.AlphaFadeOut >= 1.0f)
-						DrawGamePreviewNote(context.Gfx, Camera, drawList, noteCenter, it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated, hitAnimation, nLanes, iLane);
-
-					if (timeSinceHit <= Time::Zero())
-						DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, noteCenter, {}, it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
-
-					if (const f32 whiteAlpha = (hitAnimation.WhiteFadeIn * hitAnimation.AlphaFadeOut); whiteAlpha > 0.0f)
+				// NOTE: Hit pulse animation on the last drumroll/balloon hit
+				if (noteIsHit)
+				{
+					const Time timeSinceLastHit = TimeSinceNoteHit(playState->LastHitTime, cursorTimeOrAnimated);
+					if (timeSinceLastHit > Time::Zero() && timeSinceLastHit <= GameNoteHitAnimationDuration)
 					{
-						// TODO: ...
-						// const auto radii = IsBigNote(it->OriginalNote->Type) ? GameRefNoteRadiiBig : GameRefNoteRadiiSmall;
-						// drawList->AddCircleFilled(Camera.RefToScreenSpace(refSpaceCenter), Camera.RefToScreenScale(radii.BlackOuter), ImColor(1.0f, 1.0f, 1.0f, whiteAlpha));
+						const auto hitAnimation = GetNoteHitPathAnimation(timeSinceLastHit, Camera.ExtendedLaneWidthFactor(), nLanes, iLane, it->OriginalNote->Type);
+						const vec2 laneOrigin = Camera.GetHitCircleCoordinatesLane(jposScrollChanges, playState->LastHitTime, tempoChanges);
+						const vec2 noteCenter = Camera.LaneToWorldSpace(laneOrigin.x, laneOrigin.y) + hitAnimation.PositionOffset;
+						if (hitAnimation.AlphaFadeOut >= 1.0f)
+							DrawGamePreviewNote(context.Gfx, Camera, drawList, noteCenter, it->Tempo, it->ScrollSpeed, ToBigNoteIf(NoteType::Don, IsBigNote(it->OriginalNote->Type)), cursorTimeOrAnimated, hitAnimation);
 					}
 				}
 			}
-			ReverseNoteDrawBuffer.clear();
+			else if (IsLongNote(it->OriginalNote->Type))
+			{
+				if (IsBalloonNote(it->OriginalNote->Type))
+				{
+					if (IsFuseRoll(it->OriginalNote->Type))
+						DrawGamePreviewNoteDuration(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->OriginalNote->Type, 0xFFFFFFFF);
+					DrawGamePreviewNote(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated);
+					DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), {}, it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
+					if (timeSinceHit >= Time::Zero())
+						DrawGamePreviewNumericText(context.Gfx, Camera, drawList, SprTransform::FromCenter(Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), vec2(2)),
+							std::to_string(it->OriginalNote->BalloonPopCount).c_str(), 0xFFFFFFFF);
+				}
+				else
+				{
+					const i32 maxHitCount = (it->OriginalNote->BeatDuration.Ticks / drummrollHitInterval.Ticks);
+					const Beat hitIntervalRoundedDuration = (drummrollHitInterval * maxHitCount);
+
+					i32 drumrollHitsSoFar = 0;
+					if (timeSinceHit >= Time::Zero())
+					{
+						for (Beat subBeat = hitIntervalRoundedDuration; subBeat >= Beat::Zero(); subBeat -= drummrollHitInterval)
+						{
+							const Time subHitTime = course->TempoMap.BeatToTime(it->OriginalNote->BeatTime + subBeat) + it->OriginalNote->TimeOffset;
+							if (subHitTime <= cursorTimeOrAnimated)
+								drumrollHitsSoFar++;
+						}
+					}
+
+					const f32 hitPercentage = ConvertRangeClampOutput(0.0f, static_cast<f32>(ClampBot(maxHitCount, 4)), 0.0f, 1.0f, static_cast<f32>(drumrollHitsSoFar));
+					const u32 hitNoteColor = InterpolateDrumrollHitColor(it->OriginalNote->Type, hitPercentage);
+					DrawGamePreviewNoteDuration(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->OriginalNote->Type, hitNoteColor);
+					DrawGamePreviewNote(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated);
+					DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, Camera.LaneToWorldSpace(it->LaneHeadX, it->LaneHeadY), Camera.LaneToWorldSpace(it->LaneTailX, it->LaneTailY), it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
+
+					if (timeSinceHit >= Time::Zero())
+					{
+						for (Beat subBeat = hitIntervalRoundedDuration; subBeat >= Beat::Zero(); subBeat -= drummrollHitInterval)
+						{
+							const Time subHitTime = course->TempoMap.BeatToTime(it->OriginalNote->BeatTime + subBeat) + it->OriginalNote->TimeOffset;
+							const Time timeSinceSubHit = TimeSinceNoteHit(subHitTime, cursorTimeOrAnimated);
+							// `>` to avoid displaying extra notes when editing (still fails sometimes)
+							if (timeSinceSubHit > Time::Zero() && timeSinceSubHit <= GameNoteHitAnimationDuration)
+							{
+								// TODO: Scale duration, animation speed and path by extended lane width
+								const auto hitAnimation = GetNoteHitPathAnimation(timeSinceSubHit, Camera.ExtendedLaneWidthFactor(), nLanes, iLane, it->OriginalNote->Type);
+								const vec2 laneOrigin = Camera.GetHitCircleCoordinatesLane(jposScrollChanges, subHitTime, tempoChanges);
+								const vec2 noteCenter = Camera.LaneToWorldSpace(laneOrigin.x, laneOrigin.y) + hitAnimation.PositionOffset;
+
+								if (hitAnimation.AlphaFadeOut >= 1.0f)
+									DrawGamePreviewNote(context.Gfx, Camera, drawList, noteCenter, it->Tempo, it->ScrollSpeed, ToBigNoteIf(NoteType::Don, IsBigNote(it->OriginalNote->Type)), cursorTimeOrAnimated, hitAnimation);
+							}
+						}
+					}
+				}
+			}
+			else
+			{
+				// TODO: Instead of offseting the lane x position just draw as HitCenter + PositionOffset directly (?)
+				// NOTE: Un-hit notes during a playtest keep scrolling past the judgement mark instead of being auto-hit
+				const Time animationTimeSinceHit = (noteIsHit || (!isPlaytest && timeSinceHit >= Time::Zero()))
+					? timeSinceHit
+					: Time::FromSec(-1.0);
+				auto hitAnimation = GetNoteHitPathAnimation(animationTimeSinceHit, Camera.ExtendedLaneWidthFactor(), nLanes, iLane, it->OriginalNote->Type);
+				const vec2 noteOrigin = (noteIsHit || (!isPlaytest && timeSinceHit >= Time::Zero())) ? Camera.GetHitCircleCoordinatesLane(jposScrollChanges, it->NoteEndTime, tempoChanges) // keep flying note's start position
+					: vec2{ it->LaneHeadX, it->LaneHeadY };
+				const vec2 noteCenter = Camera.LaneToWorldSpace(noteOrigin.x, noteOrigin.y) + hitAnimation.PositionOffset;
+
+				if (hitAnimation.AlphaFadeOut >= 1.0f)
+					DrawGamePreviewNote(context.Gfx, Camera, drawList, noteCenter, it->Tempo, it->ScrollSpeed, it->OriginalNote->Type, cursorTimeOrAnimated, hitAnimation, nLanes, iLane);
+
+				if (timeSinceHit <= Time::Zero())
+					DrawGamePreviewNoteSEText(context.Gfx, Camera, drawList, noteCenter, {}, it->Tempo, it->ScrollSpeed, it->OriginalNote->TempSEType);
+
+				if (const f32 whiteAlpha = (hitAnimation.WhiteFadeIn * hitAnimation.AlphaFadeOut); whiteAlpha > 0.0f)
+				{
+					// TODO: ...
+					// const auto radii = IsBigNote(it->OriginalNote->Type) ? GameRefNoteRadiiBig : GameRefNoteRadiiSmall;
+					// drawList->AddCircleFilled(Camera.RefToScreenSpace(refSpaceCenter), Camera.RefToScreenScale(radii.BlackOuter), ImColor(1.0f, 1.0f, 1.0f, whiteAlpha));
+				}
+			}
 		}
-		drawList->PopClipRect();
+		ReverseNoteDrawBuffer.clear();
+
+		// NOTE: Playtest HUD
+		if (isPlaytest && context.Playtest.IsActive && course == context.ChartSelectedCourse && branch == context.ChartSelectedBranch)
+		{
+			const ChartPlaytest& pt = context.Playtest;
+			const vec2 viewportTL = Camera.ScreenSpaceViewportRect.TL;
+			ImFont* hudFont = Gui::GetDefaultFont();
+			const f32 hudFontSize = Gui::GetFontSize();
+			const f32 comboFontSize = hudFontSize * 2.5f;
+
+			// NOTE: Judgement text, shown briefly near the judgement mark
+			if (pt.LastJudgment != ChartPlaytest::Judgment::None)
+			{
+				const Time timeSinceJudgment = cursorTimeOrAnimated - pt.LastJudgmentTime;
+				const f32 judgmentFadeTime = 0.5f;
+				const f32 judgmentAlpha = 1.0f - (timeSinceJudgment.Seconds / judgmentFadeTime);
+				if (judgmentAlpha > 0.0f)
+				{
+					const cstr judgmentText =
+						(pt.LastJudgment == ChartPlaytest::Judgment::Good) ? u8"\u826F" :      // 良
+						(pt.LastJudgment == ChartPlaytest::Judgment::Ok) ? u8"\u53EF" :       // 可
+						u8"\u4E0D\u53EF";                                                      // 不可
+					const u32 judgmentColor =
+						(pt.LastJudgment == ChartPlaytest::Judgment::Good) ? 0xFFFFD700 :
+						(pt.LastJudgment == ChartPlaytest::Judgment::Ok) ? 0xFF4FC3F7 :
+						0xFFFF5252;
+					const ImU32 color = (static_cast<ImU32>(judgmentColor) & 0x00FFFFFF) | (static_cast<ImU32>(Clamp(judgmentAlpha, 0.0f, 1.0f) * 255.0f) << 24);
+					const vec2 judgmentPos = playtestHitCircleScreenPos + vec2(*Settings.General.PlaytestJudgementPositionOffsetX, -hudFontSize * 2.5f + *Settings.General.PlaytestJudgementPositionOffsetY);
+					drawList->AddText(hudFont, comboFontSize, judgmentPos, color, judgmentText);
+				}
+			}
+
+			// NOTE: Combo
+			{
+				char comboText[64];
+				sprintf_s(comboText, "%d", pt.Combo);
+				const vec2 comboTextSize = hudFont->CalcTextSizeA(comboFontSize, FLT_MAX, 0.0f, comboText);
+				const vec2 comboPos = viewportTL + vec2((Camera.ScreenSpaceViewportRect.GetWidth() - comboTextSize.x) * 0.5f, hudFontSize * 0.25f);
+				drawList->AddText(hudFont, comboFontSize, comboPos, 0xFFFFFFFF, comboText);
+			}
+
+			// NOTE: Hit counts
+			{
+				char hitsText[128];
+				sprintf_s(hitsText, "%d / %d   GOOD %d   OK %d   BAD %d", pt.Combo, pt.TotalNotes, pt.GoodCount, pt.OkCount, pt.BadCount);
+				const vec2 hitsPos = viewportTL + vec2(hudFontSize, Camera.ScreenSpaceViewportRect.GetHeight() - hudFontSize * 1.5f);
+				drawList->AddText(hudFont, hudFontSize, hitsPos, 0xFFAAAAAA, hitsText);
+			}
+		}
+	}
+	drawList->PopClipRect();
 	}
 }
