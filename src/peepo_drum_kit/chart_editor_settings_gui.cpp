@@ -141,7 +141,7 @@ namespace PeepoDrumKit
 			Default,
 			B8_ChartSongSpaceComboBox, B8_ExclusiveAudioComboBox, I32_BarDivisionComboBox,
 			F32_TimelineScrollSensitivity, F32_ExponentialSpeed, F32_VolumeSlider,
-			I32_AudioBufferFrameSize, I32_PlaytestActionCombo,
+			I32_AudioBufferFrameSize, I32_PlaytestActionCombo, I32_AudioBackendCombo,
 		};
 
 		struct SettingsEntry
@@ -255,6 +255,47 @@ namespace PeepoDrumKit
 								if (isSelected) { Gui::SetItemDefaultFocus(); }
 							}
 							Gui::EndCombo();
+						}
+					}
+					else if (in.Widget == WidgetType::I32_AudioBackendCombo)
+					{
+						Audio::Backend backendValue = static_cast<Audio::Backend>(Clamp<i32>(inOutI32->Value, 0, EnumCount<Audio::Backend> - 1));
+						changesWereMade |= Gui::ComboEnum("##Backend", &backendValue, Audio::BackendNames);
+						if (changesWereMade)
+							inOutI32->Value = static_cast<i32>(backendValue);
+
+						if (backendValue == Audio::Backend::ASIO)
+						{
+							const std::vector<Audio::ASIODriverInfo> asioDrivers = Audio::ASIOEnumerateDrivers();
+							const std::string& currentDriverName = *Settings_Mutable.Audio.AudioASIODeviceName;
+
+							cstr previewText = "None";
+							for (const Audio::ASIODriverInfo& driver : asioDrivers)
+							{
+								if (driver.Name == currentDriverName)
+								{
+									previewText = driver.DisplayName.c_str();
+									break;
+								}
+							}
+
+							Gui::SetNextItemWidth(-1.0f);
+							if (Gui::BeginCombo("ASIO Driver", previewText))
+							{
+								for (const Audio::ASIODriverInfo& driver : asioDrivers)
+								{
+									const b8 isSelected = (driver.Name == currentDriverName);
+									if (Gui::Selectable(driver.DisplayName.c_str(), isSelected))
+									{
+										*Settings_Mutable.Audio.AudioASIODeviceName = driver.Name;
+										changesWereMade = true;
+									}
+								}
+								Gui::EndCombo();
+							}
+
+							if (asioDrivers.empty())
+								Gui::TextColored(ImVec4(1.0f, 0.6f, 0.6f, 1.0f), "No ASIO drivers were found. Install one (e.g. FlexASIO) and restart the program.");
 						}
 					}
 					else
@@ -1010,63 +1051,15 @@ namespace PeepoDrumKit
 							"Prevent audio distortion by requesting sufficient buffer size (adding audio latency).\n"
 							"The minimum resulting size is the minimum possible size reported by the device.",
 							SettingsGui::WidgetType::I32_AudioBufferFrameSize),
+
+						SettingsGui::SettingsEntry(
+							settings.Audio.AudioBackend,
+							"Audio Backend",
+							"WASAPI (Shared) is the default. ASIO requires an installed ASIO driver (e.g. FlexASIO, ASIO4ALL or a hardware driver).",
+							SettingsGui::WidgetType::I32_AudioBackendCombo),
 					};
 
-					// NOTE: Same layout as the Playtest tab, otherwise the settings table would fill the whole height
-					//		 and push the audio backend / ASIO section below out of the visible area.
-					Gui::BeginChild("AudioSettingsEntries", { 0.0f, Gui::GetContentRegionAvail().y * 0.45f }, false);
 					changesWereMade |= SettingsGui::DrawEntriesListTableGui(settingsEntriesAudio, ArrayCount(settingsEntriesAudio), nullptr, lastActiveGroup);
-
-					Gui::EndChild();
-					Gui::Separator();
-					Gui::BeginChild("AudioSettingsBackend", Gui::GetContentRegionAvail(), false);
-
-					// NOTE: Audio backend selection
-					{
-						Audio::Backend backendValue = static_cast<Audio::Backend>(Clamp<i32>(*settings.Audio.AudioBackend, 0, EnumCount<Audio::Backend> - 1));
-						if (Gui::ComboEnum("Audio Backend", &backendValue, Audio::BackendNames))
-						{
-							*settings.Audio.AudioBackend = static_cast<i32>(backendValue);
-							changesWereMade = true;
-						}
-						Gui::TextDisabled("WASAPI (Shared) is the default. ASIO requires an installed ASIO driver (e.g. FlexASIO, ASIO4ALL or a hardware driver).");
-
-						if (backendValue == Audio::Backend::ASIO)
-						{
-							const std::vector<Audio::ASIODriverInfo> asioDrivers = Audio::ASIOEnumerateDrivers();
-							const std::string& currentDriverName = *settings.Audio.AudioASIODeviceName;
-
-							cstr previewText = "None";
-							for (const Audio::ASIODriverInfo& driver : asioDrivers)
-							{
-								if (driver.Name == currentDriverName)
-								{
-									previewText = driver.DisplayName.c_str();
-									break;
-								}
-							}
-
-							if (Gui::BeginCombo("ASIO Driver", previewText))
-							{
-								for (const Audio::ASIODriverInfo& driver : asioDrivers)
-								{
-									const b8 isSelected = (driver.Name == currentDriverName);
-									if (Gui::Selectable(driver.DisplayName.c_str(), isSelected))
-									{
-										*settings.Audio.AudioASIODeviceName = driver.Name;
-										changesWereMade = true;
-									}
-								}
-								Gui::EndCombo();
-							}
-
-							if (asioDrivers.empty())
-							{
-								Gui::TextColored(ImVec4(1.0f, 0.6f, 0.6f, 1.0f), "No ASIO drivers were found. Install one (e.g. FlexASIO) and restart the program.");
-							}
-						}
-					}
-					Gui::EndChild();
 				}
 				Gui::PopStyleVar();
 				Gui::EndTabItem();
