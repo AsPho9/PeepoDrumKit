@@ -1,3 +1,3 @@
 # Peepo Drum Kit
 
-samyuu氏が作成したtjaエディターをForkして0auBSQ氏がOpTk用に最適化したアレをForkして独断と偏見でいらない機能を色々消しちゃったアレ。
+Im bored so i made a peepodrumkit with play test and asio
