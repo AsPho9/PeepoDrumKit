@@ -32,6 +32,8 @@ namespace PeepoDrumKit
 		};
 
 		b8 IsActive = false;
+		b8 IsPaused = false;
+		b8 IsFinished = false;		// NOTE: A playtest has run and ended; score data is kept visible until the next start
 		Time CurrentTime = Time::Zero();
 
 		i32 Combo = 0;
@@ -48,9 +50,12 @@ namespace PeepoDrumKit
 		Time LastJudgmentTime = Time::Zero();
 
 		void Start(ChartContext& context);
+		void Restart(ChartContext& context);
 		void Stop(ChartContext& context);
-		void Update(ChartContext& context);
+		void Update(ChartContext& context, f32 deltaTimeSec);
 		void OnHit(ChartContext& context, b8 isKa);
+		void Pause(ChartContext& context);
+		void Resume(ChartContext& context);
 
 		inline const NotePlayState* TryGetNoteState(const Note* note) const
 		{
@@ -59,7 +64,10 @@ namespace PeepoDrumKit
 		}
 
 	private:
+		void Start(ChartContext& context, Beat startBeat);
+		Beat OriginalStartBeat = Beat::Zero();
 		void RegisterNoteHit(ChartContext& context, Judgment judgment, Time hitTime);
 		void RegisterMiss(ChartContext& context);
+		void BeginPlayback(ChartContext& context);
 	};
 }

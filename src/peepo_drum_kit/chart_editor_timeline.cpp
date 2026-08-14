@@ -2254,12 +2254,56 @@ namespace PeepoDrumKit
 		// NOTE: While a playtest is active, route the Don/Ka keys as playtest hits and skip all timeline editing input
 		if (context.Playtest.IsActive)
 		{
+			if (Gui::IsAnyPressed(*Settings.Input.Timeline_TogglePlaytestPause, false, InputModifierBehavior::Relaxed))
+			{
+				if (context.Playtest.IsPaused)
+					context.Playtest.Resume(context);
+				else
+					context.Playtest.Pause(context);
+			}
+
+			// NOTE: A single touch (release within the long touch duration) of the "Playtest: Control Key" binding (Space by default) performs the configured single touch action, while holding it down for at least the long touch duration performs the configured long touch action. Both actions trigger on key release to avoid firing twice.
+			{
+				const f32 holdDuration = Max(*Settings.General.PlaytestHoldDurationSec, 0.05f);
+				f32 controlKeyReleasedDuration = -1.0f;
+				for (const InputBinding& controlKeySlot : *Settings.Input.Playtest_Control)
+				{
+					if (controlKeySlot.Type != InputBindingType::Keyboard)
+						continue;
+					const ImGuiKeyData* controlKeyData = ImGui::GetKeyData(static_cast<ImGuiKey>(controlKeySlot.KeyOrButton));
+					if (controlKeyData->DownDuration < 0.0f && controlKeyData->DownDurationPrev >= 0.0f)
+						controlKeyReleasedDuration = Max(controlKeyReleasedDuration, controlKeyData->DownDurationPrev);
+				}
+				if (controlKeyReleasedDuration >= 0.0f)
+				{
+					const auto applyPlaytestTapHoldAction = [&](PlaytestTapHoldAction action)
+					{
+						switch (action)
+						{
+							case PlaytestTapHoldAction::Pause:
+								if (context.Playtest.IsPaused)
+									context.Playtest.Resume(context);
+								else
+									context.Playtest.Pause(context);
+								break;
+							case PlaytestTapHoldAction::Restart:
+								context.Playtest.Restart(context);
+								break;
+						}
+					};
+
+					const b8 isLongTouch = (controlKeyReleasedDuration >= holdDuration);
+					const i32 actionIndex = isLongTouch ? *Settings.General.PlaytestHoldAction : *Settings.General.PlaytestTapAction;
+					applyPlaytestTapHoldAction(PlaytestTapHoldAction(Clamp<i32>(actionIndex, 0, (i32)EnumCount<PlaytestTapHoldAction> - 1)));
+				}
+			}
+
 			if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitDon, false, InputModifierBehavior::Relaxed))
 				context.Playtest.OnHit(context, false);
 			if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitKa, false, InputModifierBehavior::Relaxed))
 				context.Playtest.OnHit(context, true);
 
-			context.Playtest.Update(context);
+			context.Playtest.Update(context, Gui::DeltaTime());
 
 			// NOTE: Keep the timeline following the playtest playback so the user can see (and quickly jump to) the part being played
 			if (Audio::Engine.GetIsStreamOpenRunning())
@@ -2855,6 +2899,7 @@ namespace PeepoDrumKit
 				if (context.GetIsPlayback())
 				{
 					context.SetIsPlayback(false);
+					context.PlaybackLeadInActive = false;
 					WorldSpaceCursorXAnimationCurrent = Camera.TimeToWorldSpaceX(context.GetCursorTime());
 				}
 				else

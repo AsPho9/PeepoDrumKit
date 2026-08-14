@@ -8,6 +8,20 @@ namespace PeepoDrumKit
 {
 	constexpr std::string_view PeepoDrumKitApplicationTitle = PEEPO_DEBUG ? "Peepo Drum Kit (Debug)" : "Peepo Drum Kit";
 
+	// NOTE: Action performed by a playtest control key tap or hold
+	enum class PlaytestTapHoldAction : i32
+	{
+		Pause,
+		Restart,
+		Count,
+	};
+
+	constexpr cstr PlaytestTapHoldActionNames[EnumCount<PlaytestTapHoldAction>] =
+	{
+		"Pause",
+		"Restart",
+	};
+
 	struct RecentFilesList
 	{
 		// NOTE: Default 9 to match the keyboard number row key count
@@ -133,6 +147,11 @@ namespace PeepoDrumKit
 			WithDefault<i32> PlaytestJudgementWindowOkMS = 100;
 			WithDefault<f32> PlaytestJudgementPositionOffsetX = 0.0f;
 			WithDefault<f32> PlaytestJudgementPositionOffsetY = 0.0f;
+			WithDefault<f32> PlaytestComboPositionOffsetX = 0.0f;
+			WithDefault<f32> PlaytestComboPositionOffsetY = 0.0f;
+			WithDefault<f32> PlaytestHoldDurationSec = 2.0f;
+			WithDefault<i32> PlaytestTapAction = EnumToIndex(PlaytestTapHoldAction::Pause);
+			WithDefault<i32> PlaytestHoldAction = EnumToIndex(PlaytestTapHoldAction::Restart);
 			WithDefault<b8> DisplayTimeInSongSpace = false;
 			WithDefault<b8> TimelineScrollInvertMouseWheel = false;
 			WithDefault<f32> TimelineScrollDistancePerMouseWheelTick = 100.0f;
@@ -167,6 +186,9 @@ namespace PeepoDrumKit
 			WithDefault<i32> AudioBackend = 0;
 			WithDefault<std::string> AudioASIODeviceName = {};
 			WithDefault<i32> BufferFrameSize = 0;
+			// NOTE: App-level volume multipliers applied on top of the chart's SongVolume / SoundEffectVolume, NOT saved in the TJA
+			WithDefault<f32> SystemAudioVolume = 1.0f;
+			WithDefault<f32> SystemSeVolume = 1.0f;
 		} Audio;
 
 		struct AnimationData
@@ -284,6 +306,8 @@ namespace PeepoDrumKit
 			WithDefault<MultiInputBinding> Timeline_TogglePlayback = { KeyBinding(ImGuiKey_Space) };
 			WithDefault<MultiInputBinding> Timeline_ToggleMetronome = { KeyBinding(ImGuiKey_M) };
 			WithDefault<MultiInputBinding> Timeline_TogglePlaytest = { KeyBinding(ImGuiKey_F5) };
+			WithDefault<MultiInputBinding> Timeline_TogglePlaytestPause = { KeyBinding(ImGuiKey_P) };
+			WithDefault<MultiInputBinding> Playtest_Control = { KeyBinding(ImGuiKey_Space) };
 			// NOTE: Keys used to hit notes while a playtest is active (defaults to the Don/Ka note placement keys so old behavior is preserved)
 			WithDefault<MultiInputBinding> Playtest_HitDon = { KeyBinding(ImGuiKey_F), KeyBinding(ImGuiKey_J) };
 			WithDefault<MultiInputBinding> Playtest_HitKa = { KeyBinding(ImGuiKey_D), KeyBinding(ImGuiKey_K) };

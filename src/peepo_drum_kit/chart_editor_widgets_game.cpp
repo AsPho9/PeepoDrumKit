@@ -756,6 +756,10 @@ namespace PeepoDrumKit
 			drawList->ChannelsSetCurrent(3);
 			ForEachNoteOnNoteLane(*course, branch, [&](const ForEachNoteLaneData& it)
 			{
+				// NOTE: Hide notes within the playback lead-in measure (before the real start)
+				if (context.PlaybackLeadInActive && it.Time < context.PlaybackLeadInEndTime)
+					return;
+
 				vec2 laneHead = Camera.GetNoteCoordinatesLane(hitCirclePosLane, cursorTimeOrAnimated, cursorHBScrollBeatOrAnimated, it.Time, it.Beat, it.Tempo, it.ScrollSpeed, it.ScrollType, tempoChanges, jposScrollChanges);
 				vec2 laneTail = Camera.GetNoteCoordinatesLane(hitCirclePosLane, cursorTimeOrAnimated, cursorHBScrollBeatOrAnimated, it.Tail.Time, it.Tail.Beat, it.Tail.Tempo, it.Tail.ScrollSpeed, it.Tail.ScrollType, tempoChanges, jposScrollChanges);
 
@@ -957,7 +961,7 @@ namespace PeepoDrumKit
 		ReverseNoteDrawBuffer.clear();
 
 		// NOTE: Playtest HUD
-		if (isPlaytest && context.Playtest.IsActive && course == context.ChartSelectedCourse && branch == context.ChartSelectedBranch)
+		if ((isPlaytest || context.Playtest.IsFinished) && course == context.ChartSelectedCourse && branch == context.ChartSelectedBranch)
 		{
 			const ChartPlaytest& pt = context.Playtest;
 			const vec2 viewportTL = Camera.ScreenSpaceViewportRect.TL;
@@ -966,7 +970,7 @@ namespace PeepoDrumKit
 			const f32 comboFontSize = hudFontSize * 2.5f;
 
 			// NOTE: Judgement text, shown briefly near the judgement mark
-			if (pt.LastJudgment != ChartPlaytest::Judgment::None)
+			if (pt.IsActive && pt.LastJudgment != ChartPlaytest::Judgment::None)
 			{
 				const Time timeSinceJudgment = cursorTimeOrAnimated - pt.LastJudgmentTime;
 				const f32 judgmentFadeTime = 0.5f;
@@ -989,10 +993,12 @@ namespace PeepoDrumKit
 
 			// NOTE: Combo
 			{
+				// NOTE: When the playtest is finished the final max combo is shown instead of the current combo
+				const i32 comboDisplay = pt.IsActive ? pt.Combo : pt.MaxCombo;
 				char comboText[64];
-				sprintf_s(comboText, "%d", pt.Combo);
+				sprintf_s(comboText, "%d", comboDisplay);
 				const vec2 comboTextSize = hudFont->CalcTextSizeA(comboFontSize, FLT_MAX, 0.0f, comboText);
-				const vec2 comboPos = viewportTL + vec2((Camera.ScreenSpaceViewportRect.GetWidth() - comboTextSize.x) * 0.5f, hudFontSize * 0.25f);
+				const vec2 comboPos = viewportTL + vec2((Camera.ScreenSpaceViewportRect.GetWidth() - comboTextSize.x) * 0.5f + *Settings.General.PlaytestComboPositionOffsetX, hudFontSize * 0.25f + *Settings.General.PlaytestComboPositionOffsetY);
 				drawList->AddText(hudFont, comboFontSize, comboPos, 0xFFFFFFFF, comboText);
 			}
 

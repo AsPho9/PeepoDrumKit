@@ -912,8 +912,23 @@ namespace PeepoDrumKit
 
 		// NOTE: Apply volume
 		{
-			context.SongVoice.SetVolume(context.Chart.SongVolume);
-			context.SfxVoicePool.SetSoundGroupVolume(SoundGroup::SoundEffects, context.Chart.SoundEffectVolume);
+			f32 songVolume = context.Chart.SongVolume * Clamp(*Settings.Audio.SystemAudioVolume, 0.0f, 4.0f);
+
+			// NOTE: Fade the song in over the playback lead-in measure
+			if (context.PlaybackLeadInActive)
+			{
+				const Time fadeElapsed = context.GetCursorTime() - context.PlaybackLeadInStartTime;
+				const Time fadeDuration = context.PlaybackLeadInEndTime - context.PlaybackLeadInStartTime;
+				if (fadeDuration.Seconds > 0.0)
+					songVolume *= static_cast<f32>(Clamp(fadeElapsed.Seconds / fadeDuration.Seconds, 0.0, 1.0));
+				else
+					songVolume *= 0.0f;
+				if (fadeElapsed >= fadeDuration)
+					context.PlaybackLeadInActive = false;
+			}
+
+			context.SongVoice.SetVolume(songVolume);
+			context.SfxVoicePool.SetSoundGroupVolume(SoundGroup::SoundEffects, context.Chart.SoundEffectVolume * Clamp(*Settings.Audio.SystemSeVolume, 0.0f, 4.0f));
 		}
 
 		// NOTE: Drag and drop handling
@@ -1081,8 +1096,19 @@ namespace PeepoDrumKit
 			if (context.Playtest.IsActive)
 			{
 				Gui::SameLine();
+				if (Gui::Button(context.Playtest.IsPaused ? "Resume" : "Pause"))
+				{
+					if (context.Playtest.IsPaused)
+						context.Playtest.Resume(context);
+					else
+						context.Playtest.Pause(context);
+				}
+			}
+			if (context.Playtest.IsActive || context.Playtest.IsFinished)
+			{
+				Gui::SameLine();
 				char playtestStatusBuffer[128];
-				sprintf_s(playtestStatusBuffer, "Combo %d | GOOD %d | OK %d | BAD %d", context.Playtest.Combo, context.Playtest.GoodCount, context.Playtest.OkCount, context.Playtest.BadCount);
+				sprintf_s(playtestStatusBuffer, "Combo %d | Max %d | GOOD %d | OK %d | BAD %d", context.Playtest.Combo, context.Playtest.MaxCombo, context.Playtest.GoodCount, context.Playtest.OkCount, context.Playtest.BadCount);
 				Gui::TextUnformatted(playtestStatusBuffer);
 			}
 			gamePreview.DrawGui(context, timeline.Camera.WorldSpaceXToTime(timeline.WorldSpaceCursorXAnimationCurrent));
@@ -1401,6 +1427,7 @@ namespace PeepoDrumKit
 		SetChartDefaultSettingsAndCourses(context.Chart);
 
 		context.SetIsPlayback(false);
+		context.PlaybackLeadInActive = false;
 		context.SetCursorBeat(Beat::Zero());
 		context.Undo.ClearAll();
 

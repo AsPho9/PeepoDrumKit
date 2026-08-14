@@ -453,6 +453,11 @@ namespace PeepoDrumKit
 			X(General.PlaytestJudgementWindowOkMS, "playtest_judgement_window_ok_ms");
 			X(General.PlaytestJudgementPositionOffsetX, "playtest_judgement_position_offset_x");
 			X(General.PlaytestJudgementPositionOffsetY, "playtest_judgement_position_offset_y");
+			X(General.PlaytestComboPositionOffsetX, "playtest_combo_position_offset_x");
+			X(General.PlaytestComboPositionOffsetY, "playtest_combo_position_offset_y");
+			X(General.PlaytestHoldDurationSec, "playtest_hold_duration_sec");
+			X(General.PlaytestTapAction, "playtest_tap_action");
+			X(General.PlaytestHoldAction, "playtest_hold_action");
 			X(General.DisplayTimeInSongSpace, "display_time_in_song_space");
 			X(General.TimelineScrollInvertMouseWheel, "timeline_scroll_invert_mouse_wheel");
 			X(General.TimelineScrollDistancePerMouseWheelTick, "timeline_scroll_distance_per_mouse_wheel_tick");
@@ -478,6 +483,8 @@ namespace PeepoDrumKit
 			SECTION("audio");
 			X(Audio.OpenDeviceOnStartup, "open_device_on_startup");
 			X(Audio.CloseDeviceOnIdleFocusLoss, "close_device_on_idle_focus_loss");
+			X(Audio.SystemAudioVolume, "audio_system_audio_volume");
+			X(Audio.SystemSeVolume, "audio_system_se_volume");
 			X(Audio.AudioBackend, "audio_backend");
 			X(Audio.AudioASIODeviceName, "audio_asio_device_name");
 			X(Audio.BufferFrameSize, "buffer_frame_size");
@@ -592,6 +599,8 @@ namespace PeepoDrumKit
 			X(Input.Timeline_TogglePlayback, "timeline_toggle_playback");
 			X(Input.Timeline_ToggleMetronome, "timeline_toggle_metronome");
 			X(Input.Timeline_TogglePlaytest, "timeline_toggle_playtest");
+			X(Input.Timeline_TogglePlaytestPause, "timeline_toggle_playtest_pause");
+			X(Input.Playtest_Control, "playtest_control");
 			X(Input.Playtest_HitDon, "playtest_hit_don");
 			X(Input.Playtest_HitKa, "playtest_hit_ka");
 			X(Input.TempoCalculator_Tap, "tempo_calculator_tap");

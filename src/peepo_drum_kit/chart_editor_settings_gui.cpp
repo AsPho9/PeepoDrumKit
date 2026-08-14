@@ -140,8 +140,8 @@ namespace PeepoDrumKit
 		enum class WidgetType : u32 {
 			Default,
 			B8_ChartSongSpaceComboBox, B8_ExclusiveAudioComboBox, I32_BarDivisionComboBox,
-			F32_TimelineScrollSensitivity, F32_ExponentialSpeed,
-			I32_AudioBufferFrameSize,
+			F32_TimelineScrollSensitivity, F32_ExponentialSpeed, F32_VolumeSlider,
+			I32_AudioBufferFrameSize, I32_PlaytestActionCombo,
 		};
 
 		struct SettingsEntry
@@ -243,6 +243,20 @@ namespace PeepoDrumKit
 						if (changesWereMade)
 							inOutI32->Value = std::clamp(inOutI32->Value, 0, i32{ Audio::Engine.MaxBufferFrameCount });
 					}
+					else if (in.Widget == WidgetType::I32_PlaytestActionCombo)
+					{
+						const i32 actionIndex = Clamp(inOutI32->Value, 0, i32{ EnumCount<PlaytestTapHoldAction> - 1 });
+						if (Gui::BeginCombo("##", PlaytestTapHoldActionNames[actionIndex], ImGuiComboFlags_None))
+						{
+							for (i32 i = 0; i < (i32)EnumCount<PlaytestTapHoldAction>; i++)
+							{
+								const b8 isSelected = (inOutI32->Value == i);
+								if (Gui::Selectable(PlaytestTapHoldActionNames[i], isSelected)) { inOutI32->Value = i; changesWereMade = true; }
+								if (isSelected) { Gui::SetItemDefaultFocus(); }
+							}
+							Gui::EndCombo();
+						}
+					}
 					else
 					{
 						changesWereMade |= Gui::InputInt("##", &inOutI32->Value, 1, 10);
@@ -265,6 +279,14 @@ namespace PeepoDrumKit
 							Gui::EndCombo();
 						}
 						if (changesWereMade) { inOutF32->Value = Clamp(inOutF32->Value, 50.0f, 5000.0f); }
+					}
+					else if (in.Widget == WidgetType::F32_VolumeSlider)
+					{
+						// NOTE: Same style of slider as the chart's Song / Sound Effect volume knobs (0% .. 100% soft limit, hard limit at 400%)
+						f32 volumePercent = ToPercent(inOutF32->Value);
+						changesWereMade |= Gui::SliderFloat("##", &volumePercent, ToPercent(0.0f), ToPercent(1.0f), "%.0f%%", ImGuiSliderFlags_None);
+						if (changesWereMade)
+							inOutF32->Value = Clamp(FromPercent(volumePercent), 0.0f, 4.0f);
 					}
 					else if (in.Widget == WidgetType::F32_ExponentialSpeed)
 					{
@@ -706,26 +728,6 @@ namespace PeepoDrumKit
 							SettingsGui::WidgetType::I32_BarDivisionComboBox),
 
 						SettingsGui::SettingsEntry(
-							settings.General.PlaytestJudgementWindowGoodMS,
-							"Playtest: Good Judgement Window (ms)",
-							"The maximum offset in milliseconds from a note for a hit to be judged as Good while playtesting."),
-
-						SettingsGui::SettingsEntry(
-							settings.General.PlaytestJudgementWindowOkMS,
-							"Playtest: Ok Judgement Window (ms)",
-							"The maximum offset in milliseconds from a note for a hit to be judged as Ok while playtesting."),
-
-						SettingsGui::SettingsEntry(
-							settings.General.PlaytestJudgementPositionOffsetX,
-							"Playtest: Judgement Position X",
-							"The horizontal (pixel) offset of the judgement text relative to its default position while playtesting."),
-
-						SettingsGui::SettingsEntry(
-							settings.General.PlaytestJudgementPositionOffsetY,
-							"Playtest: Judgement Position Y",
-							"The vertical (pixel) offset of the judgement text relative to its default position while playtesting."),
-
-						SettingsGui::SettingsEntry(
 							settings.General.DisplayTimeInSongSpace,
 							"General: Time Display Space",
 							"Display time in either Chart Space (normalized starting at 00:00.000) or in Song Space (relative to song offset).",
@@ -769,6 +771,85 @@ namespace PeepoDrumKit
 					};
 
 					changesWereMade |= SettingsGui::DrawEntriesListTableGui(settingsEntriesMain, ArrayCount(settingsEntriesMain), &settingsFilterMain, lastActiveGroup);
+				}
+				Gui::PopStyleVar();
+				Gui::EndTabItem();
+			}
+
+			if (Gui::BeginTabItem("Playtest Settings"))
+			{
+				Gui::PushStyleVar(ImGuiStyleVar_FramePadding, originalFramePadding);
+				{
+					SettingsGui::SettingsEntry settingsEntriesPlaytest[] =
+					{
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementWindowGoodMS,
+							"Playtest: Good Judgement Window (ms)",
+							"The maximum offset in milliseconds from a note for a hit to be judged as Good while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementWindowOkMS,
+							"Playtest: Ok Judgement Window (ms)",
+							"The maximum offset in milliseconds from a note for a hit to be judged as Ok while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementPositionOffsetX,
+							"Playtest: Judgement Position X",
+							"The horizontal (pixel) offset of the judgement text relative to its default position while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestJudgementPositionOffsetY,
+							"Playtest: Judgement Position Y",
+							"The vertical (pixel) offset of the judgement text relative to its default position while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestComboPositionOffsetX,
+							"Playtest: Combo Position X",
+							"The horizontal (pixel) offset of the combo counter relative to its default position while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestComboPositionOffsetY,
+							"Playtest: Combo Position Y",
+							"The vertical (pixel) offset of the combo counter relative to its default position while playtesting."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestHoldDurationSec,
+							"Playtest: Long Touch Duration (s)",
+							"How long the playtest control key must be held down before it counts as a long touch."),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestTapAction,
+							"Playtest: Single Touch Action",
+							"The action performed when the playtest control key is tapped once.",
+							SettingsGui::WidgetType::I32_PlaytestActionCombo),
+
+						SettingsGui::SettingsEntry(
+							settings.General.PlaytestHoldAction,
+							"Playtest: Long Touch Action",
+							"The action performed when the playtest control key is held for the long touch duration.",
+							SettingsGui::WidgetType::I32_PlaytestActionCombo),
+					};
+
+					SettingsGui::InputSettingsEntry settingsEntriesPlaytestInput[] =
+					{
+						{ &settings.Input.Timeline_TogglePlaytest, "Timeline: Toggle Playtest", },
+						{ &settings.Input.Timeline_TogglePlaytestPause, "Timeline: Toggle Playtest Pause", },
+						{ &settings.Input.Playtest_Control, "Playtest: Control Key (Tap / Hold)", },
+						{ &settings.Input.Playtest_HitDon, "Playtest: Hit Don", },
+						{ &settings.Input.Playtest_HitKa, "Playtest: Hit Ka", },
+					};
+
+					// NOTE: The two list tables would otherwise both try to fill the whole available height, so give the
+					//		 customization list the top portion and let the input bindings table take the rest.
+					Gui::BeginChild("PlaytestCustomization", { 0.0f, Gui::GetContentRegionAvail().y * 0.6f }, false);
+					changesWereMade |= SettingsGui::DrawEntriesListTableGui(settingsEntriesPlaytest, ArrayCount(settingsEntriesPlaytest), nullptr, lastActiveGroup);
+					Gui::EndChild();
+
+					Gui::Separator();
+
+					Gui::BeginChild("PlaytestBindings", Gui::GetContentRegionAvail(), false);
+					changesWereMade |= SettingsGui::DrawInputEntriesListTableGui(settingsEntriesPlaytestInput, ArrayCount(settingsEntriesPlaytestInput), nullptr, inputState);
+					Gui::EndChild();
 				}
 				Gui::PopStyleVar();
 				Gui::EndTabItem();
@@ -878,9 +959,6 @@ namespace PeepoDrumKit
 						{ &settings.Input.Timeline_SetPlaybackSpeed_25, "Timeline: Set Playback Speed 25%", },
 						{ &settings.Input.Timeline_TogglePlayback, "Timeline: Toggle Playback", },
 						{ &settings.Input.Timeline_ToggleMetronome, "Timeline: Toggle Metronome", },
-						{ &settings.Input.Timeline_TogglePlaytest, "Timeline: Toggle Playtest", },
-						{ &settings.Input.Playtest_HitDon, "Playtest: Hit Don", },
-						{ &settings.Input.Playtest_HitKa, "Playtest: Hit Ka", },
 						{},
 						{ &settings.Input.TempoCalculator_Tap, "Tempo Calculator: Tap", },
 						{ &settings.Input.TempoCalculator_Reset, "Tempo Calculator: Reset", },
@@ -913,6 +991,18 @@ namespace PeepoDrumKit
 							settings.Audio.CloseDeviceOnIdleFocusLoss,
 							"Close Device on Idle Focus Loss",
 							"Automatically close the audio session when loosing window focus and while not playing any sounds."),
+
+						SettingsGui::SettingsEntry(
+							settings.Audio.SystemAudioVolume,
+							"System Audio Volume",
+							"System volume control.",
+							SettingsGui::WidgetType::F32_VolumeSlider),
+
+						SettingsGui::SettingsEntry(
+							settings.Audio.SystemSeVolume,
+							"System SE Volume",
+							"Effect sound volume control.",
+							SettingsGui::WidgetType::F32_VolumeSlider),
 
 						SettingsGui::SettingsEntry(
 							settings.Audio.BufferFrameSize,

@@ -7,9 +7,16 @@ namespace PeepoDrumKit
 {
 	void ChartPlaytest::Start(ChartContext& context)
 	{
+		Start(context, context.GetCursorBeat());
+	}
+
+	void ChartPlaytest::Start(ChartContext& context, Beat startBeat)
+	{
 		Stop(context);
 
 		IsActive = true;
+		IsPaused = false;
+		IsFinished = false;
 
 		Combo = 0;
 		MaxCombo = 0;
@@ -28,8 +35,38 @@ namespace PeepoDrumKit
 			TotalNotes++;
 		}
 
-		// NOTE: Playtest uses real song playback so the timeline follows along and the audio plays.
-		// Sync the song voice to the cursor position before starting playback.
+		OriginalStartBeat = startBeat;
+
+		// NOTE: Start a full measure before the cursor as a lead-in (instead of a countdown), fading the audio in
+		//		 and hiding the lead-in measure's notes so the player has time to get ready.
+		Beat leadInStartBeat, realStartBeat;
+		context.ComputePlaybackLeadInBeats(startBeat, leadInStartBeat, realStartBeat);
+		const Time realStartTime = course.TempoMap.BeatToTime(realStartBeat);
+		// NOTE: Pre-mark all notes before the real start as completed so they don't register misses or appear in the game preview
+		for (auto& [note, state] : NoteStates)
+		{
+			const Time noteTime = course.TempoMap.BeatToTime(note->BeatTime) + note->TimeOffset;
+			if (noteTime < realStartTime)
+				state.IsCompleted = true;
+		}
+		context.PlaybackLeadInActive = true;
+		context.PlaybackLeadInStartTime = course.TempoMap.BeatToTime(leadInStartBeat);
+		context.PlaybackLeadInEndTime = realStartTime;
+
+		context.SetCursorBeat(leadInStartBeat);
+		BeginPlayback(context);
+	}
+
+	void ChartPlaytest::Restart(ChartContext& context)
+	{
+		if (IsActive)
+			Start(context, OriginalStartBeat);
+		else
+			Start(context);
+	}
+
+	void ChartPlaytest::BeginPlayback(ChartContext& context)
+	{
 		context.SetCursorTime(context.GetCursorTime());
 		Audio::Engine.EnsureStreamRunning();
 		context.SetIsPlayback(true);
@@ -43,9 +80,33 @@ namespace PeepoDrumKit
 			if (context.GetIsPlayback())
 				context.SetIsPlayback(false);
 		}
+		context.PlaybackLeadInActive = false;
 		IsActive = false;
-		NoteStates.clear();
+		IsPaused = false;
+		// NOTE: Keep the score data (combo, hits, etc.) visible after the playtest ends
+		IsFinished = true;
 		LastJudgment = Judgment::None;
+		NoteStates.clear();
+	}
+
+	void ChartPlaytest::Pause(ChartContext& context)
+	{
+		if (!IsActive || IsPaused)
+			return;
+
+		if (context.GetIsPlayback())
+			context.SetIsPlayback(false);
+		IsPaused = true;
+		CurrentTime = context.GetCursorTime();
+	}
+
+	void ChartPlaytest::Resume(ChartContext& context)
+	{
+		if (!IsActive || !IsPaused)
+			return;
+
+		IsPaused = false;
+		BeginPlayback(context);
 	}
 
 	void ChartPlaytest::RegisterNoteHit(ChartContext& context, Judgment judgment, Time hitTime)
@@ -70,9 +131,13 @@ namespace PeepoDrumKit
 		RegisterNoteHit(context, Judgment::Bad, CurrentTime);
 	}
 
-	void ChartPlaytest::Update(ChartContext& context)
+	void ChartPlaytest::Update(ChartContext& context, const f32 deltaTimeSec)
 	{
 		if (!IsActive)
+			return;
+		(void)deltaTimeSec;
+
+		if (IsPaused)
 			return;
 
 		CurrentTime = context.GetCursorTime();
@@ -133,7 +198,7 @@ namespace PeepoDrumKit
 
 	void ChartPlaytest::OnHit(ChartContext& context, b8 isKa)
 	{
-		if (!IsActive)
+		if (!IsActive || IsPaused)
 			return;
 
 		const Time now = CurrentTime;

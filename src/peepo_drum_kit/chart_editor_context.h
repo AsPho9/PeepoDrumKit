@@ -35,6 +35,12 @@ namespace PeepoDrumKit
 		// NOTE: Specifically to skip hit animations for notes before this time point
 		Time CursorTimeOnPlaybackStart = Time::Zero();
 
+		// NOTE: When playback starts a full measure early as a lead-in (playtest and regular playback alike),
+		//		 the song fades in over the lead-in measure and the game preview hides that measure's notes.
+		b8 PlaybackLeadInActive = false;
+		Time PlaybackLeadInStartTime = Time::Zero();
+		Time PlaybackLeadInEndTime = Time::Zero();
+
 		// NOTE: Specifically for animations, accumulated program delta time, unrelated to GetCursorTime() etc.
 		Time ElapsedProgramTimeSincePlaybackStarted = Time::Zero();
 		Time ElapsedProgramTimeSincePlaybackStopped = Time::Zero();
@@ -140,6 +146,27 @@ namespace PeepoDrumKit
 		{
 			if (SongVoice.GetIsPlaying()) { const Time t = (SongVoice.GetPositionSmooth() + Chart.SongOffset); return { course->TempoMap.TimeToBeat(t, truncTo0), t }; }
 			else { const Beat b = CursorBeatWhilePaused; return { b, course->TempoMap.BeatToTime(b) }; }
+		}
+
+		// NOTE: Computes the lead-in start (one measure back) and the real chart start (start of the measure containing the cursor beat)
+		inline void ComputePlaybackLeadInBeats(Beat cursorBeat, Beat& outLeadInStartBeat, Beat& outRealStartBeat) const
+		{
+			Beat currentMeasureStart = Beat::Zero();
+			Beat leadInStart = Beat::Zero();
+			const Beat defaultDurPerBar = Beat::FromBars(1);
+			const TimeSignatureChange* signatureAtCursor = ChartSelectedCourse->TempoMap.Signature.TryFindLastAtBeat(cursorBeat);
+			const Beat signatureStart = (signatureAtCursor != nullptr) ? signatureAtCursor->Beat : Beat::Zero();
+			const Beat durPerBar = (signatureAtCursor != nullptr) ? abs(signatureAtCursor->Signature.GetDurationPerBar()) : defaultDurPerBar;
+			if (durPerBar.Ticks > 0)
+			{
+				const i32 measureIndex = (cursorBeat - signatureStart).Ticks / durPerBar.Ticks;
+				currentMeasureStart = signatureStart + Beat::FromTicks(measureIndex * durPerBar.Ticks);
+				leadInStart = currentMeasureStart - durPerBar;
+			}
+			if (leadInStart < Beat::Zero())
+				leadInStart = Beat::Zero();
+			outLeadInStartBeat = leadInStart;
+			outRealStartBeat = currentMeasureStart;
 		}
 
 		inline void SetCursorTime(Time newTime)
