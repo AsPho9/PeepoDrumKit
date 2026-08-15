@@ -56,7 +56,7 @@ namespace PeepoDrumKit
 		void OnHit(ChartContext& context, b8 isKa);
 		void Pause(ChartContext& context);
 		void Resume(ChartContext& context);
-		void RefreshNoteStates(ChartContext& context);
+		void RefreshNoteStates(ChartContext& context, Time completedBeforeTime);
 
 		inline const NotePlayState* TryGetNoteState(const Note* note) const
 		{

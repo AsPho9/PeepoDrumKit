@@ -106,13 +106,26 @@ namespace PeepoDrumKit
 			return;
 
 		IsPaused = false;
-		CurrentTime = context.GetCursorTime();
+
+		ChartCourse& course = *context.ChartSelectedCourse;
+
+		// NOTE: Re-apply the same lead-in / fade-in as a fresh playtest start: rewind one measure before the current
+		//		 position so the player gets the same fade-in and time to get ready again.
+		Beat leadInStartBeat, realStartBeat;
+		context.ComputePlaybackLeadInBeats(context.GetCursorBeat(), leadInStartBeat, realStartBeat);
+		const Time realStartTime = course.TempoMap.BeatToTime(realStartBeat);
 		// NOTE: Notes may have been added/removed while paused, so rebuild the playtest state from the current chart
-		RefreshNoteStates(context);
+		RefreshNoteStates(context, realStartTime);
+		context.PlaybackLeadInActive = true;
+		context.PlaybackLeadInStartTime = course.TempoMap.BeatToTime(leadInStartBeat);
+		context.PlaybackLeadInEndTime = realStartTime;
+
+		context.SetCursorBeat(leadInStartBeat);
+		CurrentTime = context.GetCursorTime();
 		BeginPlayback(context);
 	}
 
-	void ChartPlaytest::RefreshNoteStates(ChartContext& context)
+	void ChartPlaytest::RefreshNoteStates(ChartContext& context, Time completedBeforeTime)
 	{
 		NoteStates.clear();
 		TotalNotes = 0;
@@ -121,9 +134,9 @@ namespace PeepoDrumKit
 		{
 			NotePlayState& state = NoteStates[&note];
 			TotalNotes++;
-			// NOTE: Notes before the resume point are marked as completed so they don't register as misses after resuming
+			// NOTE: Notes before the real start are marked as completed so they don't register as misses or appear in the lead-in measure
 			const Time noteTime = course.TempoMap.BeatToTime(note.BeatTime) + note.TimeOffset;
-			if (noteTime < CurrentTime)
+			if (noteTime < completedBeforeTime)
 				state.IsCompleted = true;
 		}
 	}
