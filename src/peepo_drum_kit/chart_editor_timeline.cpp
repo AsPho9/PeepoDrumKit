@@ -952,6 +952,15 @@ namespace PeepoDrumKit
 				const Beat startBeat = course->TempoMap.TimeToBeat(nonSmoothCursorLastFrame - futureOffset, true);
 				const Beat endBeat = course->TempoMap.TimeToBeat(nonSmoothCursorThisFrame + futureOffset, true);
 				auto noteIt = std::lower_bound(notes.Sorted.begin(), notes.Sorted.end(), startBeat, [](const Note& note, Beat beat) { return note.BeatTime < beat; });
+				// NOTE: Long notes keep playing their sub-beat sounds after their head has scrolled past, so walk backwards
+				//		 and also include any notes whose tail still overlaps the current playback window.
+				while (noteIt != notes.Sorted.begin())
+				{
+					const auto prevIt = noteIt - 1;
+					if (prevIt->BeatTime + prevIt->BeatDuration < startBeat)
+						break;
+					noteIt = prevIt;
+				}
 				for (; noteIt != notes.Sorted.end(); ++noteIt)
 				{
 					if (noteIt->BeatTime > endBeat)

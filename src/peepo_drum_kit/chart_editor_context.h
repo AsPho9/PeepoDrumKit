@@ -148,8 +148,8 @@ namespace PeepoDrumKit
 			else { const Beat b = CursorBeatWhilePaused; return { b, course->TempoMap.BeatToTime(b) }; }
 		}
 
-		// NOTE: Computes the lead-in start (one measure back) and the real chart start (start of the measure containing the cursor beat)
-		inline void ComputePlaybackLeadInBeats(Beat cursorBeat, Beat& outLeadInStartBeat, Beat& outRealStartBeat) const
+		// NOTE: Computes the lead-in start (a number of measures back) and the real chart start (start of the measure containing the cursor beat)
+		inline void ComputePlaybackLeadInBeats(Beat cursorBeat, Beat& outLeadInStartBeat, Beat& outRealStartBeat, f32 leadInBars = 1.0f) const
 		{
 			Beat currentMeasureStart = Beat::Zero();
 			Beat leadInStart = Beat::Zero();
@@ -161,7 +161,7 @@ namespace PeepoDrumKit
 			{
 				const i32 measureIndex = (cursorBeat - signatureStart).Ticks / durPerBar.Ticks;
 				currentMeasureStart = signatureStart + Beat::FromTicks(measureIndex * durPerBar.Ticks);
-				leadInStart = currentMeasureStart - durPerBar;
+				leadInStart = currentMeasureStart - Beat::FromTicks(static_cast<i32>(Round((f64)durPerBar.Ticks * leadInBars)));
 			}
 			if (leadInStart < Beat::Zero())
 				leadInStart = Beat::Zero();

@@ -109,10 +109,19 @@ namespace PeepoDrumKit
 
 		ChartCourse& course = *context.ChartSelectedCourse;
 
-		// NOTE: Re-apply the same lead-in / fade-in as a fresh playtest start: rewind one measure before the current
+		// NOTE: Reset the judgement score so a retry from the lead-in starts with a clean slate
+		Combo = 0;
+		MaxCombo = 0;
+		GoodCount = 0;
+		OkCount = 0;
+		BadCount = 0;
+		LastJudgment = Judgment::None;
+		LastJudgmentTime = Time::Zero();
+
+		// NOTE: Re-apply the same lead-in / fade-in as a fresh playtest start: rewind half a measure before the current
 		//		 position so the player gets the same fade-in and time to get ready again.
 		Beat leadInStartBeat, realStartBeat;
-		context.ComputePlaybackLeadInBeats(context.GetCursorBeat(), leadInStartBeat, realStartBeat);
+		context.ComputePlaybackLeadInBeats(context.GetCursorBeat(), leadInStartBeat, realStartBeat, 0.5f);
 		const Time realStartTime = course.TempoMap.BeatToTime(realStartBeat);
 		// NOTE: Notes may have been added/removed while paused, so rebuild the playtest state from the current chart
 		RefreshNoteStates(context, realStartTime);
