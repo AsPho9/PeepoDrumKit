@@ -406,7 +406,7 @@ namespace PeepoDrumKit
 	};
 
 	template <typename Func>
-	static void ForEachNoteOnNoteLane(const ChartCourse& course, BranchType branch, Func perNoteFunc)
+	static void ForEachNoteOnNoteLane(const ChartCourse& course, BranchType branch, Func perNoteFunc, Beat maxBeat = Beat::FromTicks(I32Max))
 	{
 		BeatSortedForwardIterator<TempoChange> tempoChangeIt {};
 		BeatSortedForwardIterator<ScrollChange> scrollChangeIt {};
@@ -416,6 +416,9 @@ namespace PeepoDrumKit
 		for (const Note& note : course.GetNotes(branch))
 		{
 			const Beat beat = note.BeatTime;
+			// NOTE: The note list is sorted by beat, so once a note is beyond the max beat no later note can be within it
+			if (beat > maxBeat)
+				break;
 			const Time head = (course.TempoMap.BeatToTime(beat) + note.TimeOffset);
 			const Beat beatTail = (note.BeatDuration > Beat::Zero()) ? (beat + note.BeatDuration) : beat;
 			const Time tail = (note.BeatDuration > Beat::Zero()) ? (course.TempoMap.BeatToTime(beatTail) + note.TimeOffset) : head;
@@ -633,6 +636,37 @@ namespace PeepoDrumKit
 			const f64 cursorHBScrollBeatOrAnimated = course->TempoMap.BeatAndTimeToHBScrollBeatTick(cursorBeatOrAnimatedTrunc, cursorTimeOrAnimated);
 			const Beat chartBeatDuration = course->TempoMap.TimeToBeat(context.Chart.GetDurationOrDefault());
 
+			// NOTE: Conservative upper bound on the beat of any note that could be visible on the lane, used to stop iterating notes
+			//		 early. This is a large cost saving in compare mode, where every compared course is rendered each frame.
+			const Beat maxVisibleBeat = [&]() -> Beat
+			{
+				constexpr f32 gameVisibleThreshold = 280.0f;
+				const f32 visibleRange = Camera.LaneWidth() + 2.0f * gameVisibleThreshold;
+
+				f32 minBPM = FallbackTempo.BPM;
+				for (const TempoChange& tempoChange : tempos)
+					minBPM = Min(minBPM, abs(tempoChange.Tempo.BPM));
+				f32 minScroll = 1.0f;
+				for (const ScrollChange& scrollChange : course->ScrollChanges)
+					minScroll = Min(minScroll, abs(scrollChange.ScrollSpeed.GetRealPart()));
+				if (minBPM <= 0.0f || minScroll <= 0.0f)
+					return Beat::FromTicks(I32Max);
+
+				Beat maxBeat = cursorBeatOrAnimatedTrunc;
+				// NOTE: NMSCROLL positions are proportional to (BPM * scroll * delta time), so the slowest speed gives the latest visible time
+				const f32 nmSpeed = Max(minBPM * minScroll, MinAbsSafeBPM);
+				const Time maxTimeAhead = Time::FromSec((visibleRange * 60.0f) / (nmSpeed * GameWorldSpaceDistancePerLaneBeat));
+				maxBeat = Max(maxBeat, course->TempoMap.TimeToBeat(cursorTimeOrAnimated + maxTimeAhead, true));
+				// NOTE: HBSCROLL / BMSCROLL positions are proportional to the (HB)scroll beat tick distance
+				const f32 hbScroll = Max(minScroll, MinAbsSafeBPM);
+				const f64 maxBeatsAheadTicksHB = (visibleRange * (f64)Beat::TicksPerBeat) / (hbScroll * GameWorldSpaceDistancePerLaneBeat);
+				maxBeat = Max(maxBeat, Beat::FromTicks(cursorBeatOrAnimatedTrunc.Ticks + (i32)Clamp(maxBeatsAheadTicksHB, 0.0, (f64)I32Max)));
+				const f64 maxBeatsAheadTicksBM = (visibleRange * (f64)Beat::TicksPerBeat) / GameWorldSpaceDistancePerLaneBeat;
+				maxBeat = Max(maxBeat, Beat::FromTicks(cursorBeatOrAnimatedTrunc.Ticks + (i32)Clamp(maxBeatsAheadTicksBM, 0.0, (f64)I32Max)));
+				// NOTE: Safety margin for note time offsets, hit animation windows and other edge cases
+				return maxBeat + Beat::FromBeats(16);
+			}();
+
 			const auto* lastGogo = gogoRanges.TryFindLastAtBeat(cursorBeatOrAnimatedTrunc);
 			const b8 isGogo = (lastGogo != nullptr && cursorBeatOrAnimatedTrunc < lastGogo->GetEnd());
 			const Time timeSinceGogo = (lastGogo == nullptr) ? Time::FromSec(F64Max)
@@ -786,8 +820,8 @@ namespace PeepoDrumKit
 					}
 					else if (IsBalloonNote(it.OriginalNote->Type)) {
 						if (isHit && !isCompleted && !isMissed) {
-							if (timeSinceHeadHit >= Time::Zero())
-								laneHead = hitCirclePosLane;
+							// NOTE: Keep the full note length visible like in the normal game view (don't clamp the head to the judgement mark, which would shrink it)
+							isVisible = Camera.IsRangeVisibleOnLane(Min(laneHead.x, laneTail.x), Max(laneHead.x, laneTail.x));
 						}
 						else if (isCompleted)
 							isVisible = false;
@@ -796,8 +830,7 @@ namespace PeepoDrumKit
 					}
 					else { // is bar roll note
 						if (isHit && !isCompleted && !isMissed) {
-							if (timeSinceHeadHit >= Time::Zero())
-								laneHead = hitCirclePosLane;
+							// NOTE: Keep the full note length visible like in the normal game view (don't clamp the head to the judgement mark, which would shrink it)
 							isVisible = ((timeSinceHeadHit >= Time::Zero() && timeSinceTailHit <= GameNoteHitAnimationDuration)
 								|| Camera.IsRangeVisibleOnLane(Min(laneHead.x, laneTail.x), Max(laneHead.x, laneTail.x)));
 						}
@@ -829,7 +862,7 @@ namespace PeepoDrumKit
 				}
 				if (isVisible)
 					ReverseNoteDrawBuffer.push_back(DeferredNoteDrawData{ laneHead.x, laneTail.x, laneHead.y, laneTail.y, it.Tempo, it.ScrollSpeed, it.OriginalNote, it.Time, it.Tail.Time });
-			});
+			}, maxVisibleBeat);
 
 			const Beat drummrollHitInterval = GetGridBeatSnap(*Settings.General.DrumrollAutoHitBarDivision);
 			for (auto it = ReverseNoteDrawBuffer.rbegin(); it != ReverseNoteDrawBuffer.rend(); it++)

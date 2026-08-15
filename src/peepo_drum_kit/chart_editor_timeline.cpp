@@ -946,8 +946,18 @@ namespace PeepoDrumKit
 				const b8 isFocusedLane = (context.CompareMode && course == context.ChartSelectedCourse && branch == context.ChartSelectedBranch);
 				++iLane;
 
-				for (const Note& note : course->GetNotes(branch))
-					handleNotePlayback(course, branch, note, nLanes, iLane);
+				// NOTE: Only iterate the notes near the current playback position, since a note can only trigger a sound
+				//		 within this frame's time window. This avoids scanning every note of every compared course each frame.
+				const SortedNotesList& notes = course->GetNotes(branch);
+				const Beat startBeat = course->TempoMap.TimeToBeat(nonSmoothCursorLastFrame - futureOffset, true);
+				const Beat endBeat = course->TempoMap.TimeToBeat(nonSmoothCursorThisFrame + futureOffset, true);
+				auto noteIt = std::lower_bound(notes.Sorted.begin(), notes.Sorted.end(), startBeat, [](const Note& note, Beat beat) { return note.BeatTime < beat; });
+				for (; noteIt != notes.Sorted.end(); ++noteIt)
+				{
+					if (noteIt->BeatTime > endBeat)
+						break;
+					handleNotePlayback(course, branch, *noteIt, nLanes, iLane);
+				}
 			}
 		}
 
@@ -2251,7 +2261,8 @@ namespace PeepoDrumKit
 				context.Playtest.Start(context);
 		}
 
-		// NOTE: While a playtest is active, route the Don/Ka keys as playtest hits and skip all timeline editing input
+		// NOTE: While a playtest is active, route the Don/Ka keys as playtest hits and skip all timeline editing input.
+		//		 When the playtest is paused it behaves like normal editing, so notes can be placed and edited freely.
 		if (context.Playtest.IsActive)
 		{
 			if (Gui::IsAnyPressed(*Settings.Input.Timeline_TogglePlaytestPause, false, InputModifierBehavior::Relaxed))
@@ -2298,27 +2309,31 @@ namespace PeepoDrumKit
 				}
 			}
 
-			if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitDon, false, InputModifierBehavior::Relaxed))
-				context.Playtest.OnHit(context, false);
-			if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitKa, false, InputModifierBehavior::Relaxed))
-				context.Playtest.OnHit(context, true);
-
-			context.Playtest.Update(context, Gui::DeltaTime());
-
-			// NOTE: Keep the timeline following the playtest playback so the user can see (and quickly jump to) the part being played
-			if (Audio::Engine.GetIsStreamOpenRunning())
+			// NOTE: While the playtest is not paused, route the Don/Ka keys as playtest hits and skip all timeline editing input
+			if (!context.Playtest.IsPaused)
 			{
-				const Time cursorTime = context.GetCursorTime();
-				if (IsTimelineCursorVisibleOnScreen(Camera, Regions, cursorTime) && Camera.TimeToLocalSpaceX(cursorTime) >= Round(Regions.Content.GetWidth() * TimelineAutoScrollLockContentWidthFactor))
-				{
-					const Time elapsedCursorTime = Time::FromSec(Gui::DeltaTime()) * context.GetPlaybackSpeed();
-					const f32 cameraScrollIncrement = Camera.TimeToWorldSpaceX(elapsedCursorTime) * Camera.ZoomCurrent.x;
-					Camera.PositionCurrent.x += cameraScrollIncrement;
-					Camera.PositionTarget.x += cameraScrollIncrement;
-				}
-			}
+				if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitDon, false, InputModifierBehavior::Relaxed))
+					context.Playtest.OnHit(context, false);
+				if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitKa, false, InputModifierBehavior::Relaxed))
+					context.Playtest.OnHit(context, true);
 
-			return;
+				context.Playtest.Update(context, Gui::DeltaTime());
+
+				// NOTE: Keep the timeline following the playtest playback so the user can see (and quickly jump to) the part being played
+				if (Audio::Engine.GetIsStreamOpenRunning())
+				{
+					const Time cursorTime = context.GetCursorTime();
+					if (IsTimelineCursorVisibleOnScreen(Camera, Regions, cursorTime) && Camera.TimeToLocalSpaceX(cursorTime) >= Round(Regions.Content.GetWidth() * TimelineAutoScrollLockContentWidthFactor))
+					{
+						const Time elapsedCursorTime = Time::FromSec(Gui::DeltaTime()) * context.GetPlaybackSpeed();
+						const f32 cameraScrollIncrement = Camera.TimeToWorldSpaceX(elapsedCursorTime) * Camera.ZoomCurrent.x;
+						Camera.PositionCurrent.x += cameraScrollIncrement;
+						Camera.PositionTarget.x += cameraScrollIncrement;
+					}
+				}
+
+				return;
+			}
 		}
 
 		// NOTE: Mouse scroll / zoom
@@ -2894,7 +2909,8 @@ namespace PeepoDrumKit
 				if (Gui::IsAnyPressed(*Settings.Input.Timeline_SetPlaybackSpeed_25, false)) context.SetPlaybackSpeed(FromPercent(25.0f));
 			}
 
-			if (HasKeyboardFocus() && Gui::IsAnyPressed(*Settings.Input.Timeline_TogglePlayback, false, InputModifierBehavior::Relaxed))
+			// NOTE: Space (Timeline_TogglePlayback) doubles as the playtest control key, so it must not toggle regular playback while a playtest is active
+			if (!context.Playtest.IsActive && HasKeyboardFocus() && Gui::IsAnyPressed(*Settings.Input.Timeline_TogglePlayback, false, InputModifierBehavior::Relaxed))
 			{
 				if (context.GetIsPlayback())
 				{

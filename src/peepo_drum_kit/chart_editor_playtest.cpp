@@ -106,7 +106,26 @@ namespace PeepoDrumKit
 			return;
 
 		IsPaused = false;
+		CurrentTime = context.GetCursorTime();
+		// NOTE: Notes may have been added/removed while paused, so rebuild the playtest state from the current chart
+		RefreshNoteStates(context);
 		BeginPlayback(context);
+	}
+
+	void ChartPlaytest::RefreshNoteStates(ChartContext& context)
+	{
+		NoteStates.clear();
+		TotalNotes = 0;
+		ChartCourse& course = *context.ChartSelectedCourse;
+		for (const Note& note : course.GetNotes(context.ChartSelectedBranch))
+		{
+			NotePlayState& state = NoteStates[&note];
+			TotalNotes++;
+			// NOTE: Notes before the resume point are marked as completed so they don't register as misses after resuming
+			const Time noteTime = course.TempoMap.BeatToTime(note.BeatTime) + note.TimeOffset;
+			if (noteTime < CurrentTime)
+				state.IsCompleted = true;
+		}
 	}
 
 	void ChartPlaytest::RegisterNoteHit(ChartContext& context, Judgment judgment, Time hitTime)

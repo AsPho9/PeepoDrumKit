@@ -43,7 +43,7 @@ namespace PeepoDrumKit
 		i32 BadCount = 0;
 		i32 TotalNotes = 0;
 
-		// NOTE: Keyed by note pointer, notes cannot be edited while a playtest is active
+		// NOTE: Keyed by note pointer. Notes can be edited freely while the playtest is paused; the states are rebuilt on resume.
 		std::unordered_map<const Note*, NotePlayState> NoteStates;
 
 		Judgment LastJudgment = Judgment::None;
@@ -56,6 +56,7 @@ namespace PeepoDrumKit
 		void OnHit(ChartContext& context, b8 isKa);
 		void Pause(ChartContext& context);
 		void Resume(ChartContext& context);
+		void RefreshNoteStates(ChartContext& context);
 
 		inline const NotePlayState* TryGetNoteState(const Note* note) const
 		{
