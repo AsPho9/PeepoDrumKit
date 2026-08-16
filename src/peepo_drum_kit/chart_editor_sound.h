@@ -1,6 +1,7 @@
 #pragma once
 #include "core_types.h"
 #include "audio/audio_engine.h"
+#include <mutex>
 #include <optional>
 
 namespace PeepoDrumKit
@@ -52,8 +53,12 @@ namespace PeepoDrumKit
 		inline f32 GetSoundGroupVolume(SoundGroup soundGroup) { return Audio::Engine.GetSoundGroupVolume(EnumToIndex(soundGroup)); }
 
 		i32 VoicePoolRingIndex = 0;
-		static constexpr size_t VoicePoolSize = 32;
+		static constexpr size_t VoicePoolSize = 64;
 		Audio::Voice VoicePool[VoicePoolSize] = {};
+
+		// NOTE: Serializes PlaySound/PauseAllFutureVoices so the high-frequency playtest input polling thread
+		//		 can safely play sounds concurrently with the main thread.
+		std::mutex PlayMutex;
 
 		Audio::SourceHandle LoadedSources[EnumCount<SoundEffectType>] = {};
 		std::future<AsyncLoadSoundEffectsResult> LoadSoundEffectFuture = {};

@@ -2,6 +2,7 @@
 #include "chart_editor_undo.h"
 #include "chart_editor_theme.h"
 #include "chart_editor_i18n.h"
+#include "imgui/backend/imgui_application_host.h"
 
 namespace PeepoDrumKit
 {
@@ -2274,6 +2275,10 @@ namespace PeepoDrumKit
 		//		 When the playtest is paused it behaves like normal editing, so notes can be placed and edited freely.
 		if (context.Playtest.IsActive)
 		{
+			// NOTE: The high-frequency input polling thread only fires while the playtest is running, isn't paused
+			//		 and the window has focus (otherwise typing in another app would trigger playtest hits/sounds)
+			context.Playtest.InputPollEnabled.store(!context.Playtest.IsPaused && ApplicationHost::GlobalState.IsAnyWindowFocusedThisFrame);
+
 			if (Gui::IsAnyPressed(*Settings.Input.Timeline_TogglePlaytestPause, false, InputModifierBehavior::Relaxed))
 			{
 				if (context.Playtest.IsPaused)
@@ -2321,9 +2326,13 @@ namespace PeepoDrumKit
 			// NOTE: While the playtest is not paused, route the Don/Ka keys as playtest hits and skip all timeline editing input
 			if (!context.Playtest.IsPaused)
 			{
-				if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitDon, false, InputModifierBehavior::Relaxed))
+				// NOTE: Don/Ka hits are detected by the high-frequency input polling thread, which plays the sound
+				//		 immediately for minimum input latency; judgement is applied when the queued hits are drained
+				//		 inside Playtest.Update. Bindings the polling thread can't cover (e.g. mouse buttons) fall back
+				//		 to this frame-rate input path.
+				if (!context.Playtest.InputPollDonCovered && Gui::IsAnyPressed(*Settings.Input.Playtest_HitDon, false, InputModifierBehavior::Relaxed))
 					context.Playtest.OnHit(context, false);
-				if (Gui::IsAnyPressed(*Settings.Input.Playtest_HitKa, false, InputModifierBehavior::Relaxed))
+				if (!context.Playtest.InputPollKaCovered && Gui::IsAnyPressed(*Settings.Input.Playtest_HitKa, false, InputModifierBehavior::Relaxed))
 					context.Playtest.OnHit(context, true);
 
 				context.Playtest.Update(context, Gui::DeltaTime());

@@ -89,6 +89,9 @@ namespace PeepoDrumKit
 
 	ChartEditor::~ChartEditor()
 	{
+		// NOTE: Join the playtest input polling thread before tearing down the sound effects voice pool,
+		//		 otherwise the thread could keep playing sounds while the voices are being removed.
+		context.Playtest.Stop(context);
 		context.SfxVoicePool.UnloadAllSourcesAndVoices();
 	}
 

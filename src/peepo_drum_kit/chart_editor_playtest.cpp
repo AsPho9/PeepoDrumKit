@@ -1,10 +1,64 @@
 #include "chart_editor_playtest.h"
 #include "chart_editor_context.h"
 #include "chart_editor_settings.h"
+#include "imgui/extension/imgui_input_binding.h"
 #include "audio/audio_engine.h"
+#include <windows.h>
+#undef PlaySound
+#pragma comment(lib, "winmm.lib") // timeBeginPeriod / timeEndPeriod
 
 namespace PeepoDrumKit
 {
+	namespace
+	{
+		// NOTE: Reverse of the backend's `ImGui_ImplWin32_KeyEventToImGuiKey`, covering the keys that can be bound to playtest hits.
+		u32 ImGuiKeyToVirtualKey(ImGuiKey key)
+		{
+			if (key >= ImGuiKey_0 && key <= ImGuiKey_9) return u32('0') + (key - ImGuiKey_0);
+			if (key >= ImGuiKey_A && key <= ImGuiKey_Z) return u32('A') + (key - ImGuiKey_A);
+			if (key >= ImGuiKey_F1 && key <= ImGuiKey_F24) return 0x70 + (key - ImGuiKey_F1); // VK_F1
+			if (key >= ImGuiKey_Keypad0 && key <= ImGuiKey_Keypad9) return 0x60 + (key - ImGuiKey_Keypad0); // VK_NUMPAD0
+
+			switch (key)
+			{
+				case ImGuiKey_Tab: return 0x09; case ImGuiKey_LeftArrow: return 0x25; case ImGuiKey_RightArrow: return 0x27;
+				case ImGuiKey_UpArrow: return 0x26; case ImGuiKey_DownArrow: return 0x28; case ImGuiKey_PageUp: return 0x21;
+				case ImGuiKey_PageDown: return 0x22; case ImGuiKey_Home: return 0x24; case ImGuiKey_End: return 0x23;
+				case ImGuiKey_Insert: return 0x2D; case ImGuiKey_Delete: return 0x2E; case ImGuiKey_Backspace: return 0x08;
+				case ImGuiKey_Space: return 0x20; case ImGuiKey_Enter: return 0x0D; case ImGuiKey_Escape: return 0x1B;
+				case ImGuiKey_LeftCtrl: return 0xA2; case ImGuiKey_LeftShift: return 0xA0; case ImGuiKey_LeftAlt: return 0xA4;
+				case ImGuiKey_LeftSuper: return 0x5B; case ImGuiKey_RightCtrl: return 0xA3; case ImGuiKey_RightShift: return 0xA1;
+				case ImGuiKey_RightAlt: return 0xA5; case ImGuiKey_RightSuper: return 0x5C; case ImGuiKey_Menu: return 0x5D;
+				case ImGuiKey_KeypadDecimal: return 0x6E; case ImGuiKey_KeypadDivide: return 0x6F; case ImGuiKey_KeypadMultiply: return 0x6A;
+				case ImGuiKey_KeypadSubtract: return 0x6D; case ImGuiKey_KeypadAdd: return 0x6B; case ImGuiKey_KeypadEnter: return 0x0D;
+				case ImGuiKey_Apostrophe: return 0xDE; case ImGuiKey_Comma: return 0xBC; case ImGuiKey_Minus: return 0xBD;
+				case ImGuiKey_Period: return 0xBE; case ImGuiKey_Slash: return 0xBF; case ImGuiKey_Semicolon: return 0xBA;
+				case ImGuiKey_Equal: return 0xBB; case ImGuiKey_LeftBracket: return 0xDB; case ImGuiKey_Backslash: return 0xDC;
+				case ImGuiKey_RightBracket: return 0xDD; case ImGuiKey_GraveAccent: return 0xC0;
+				default: return 0;
+			}
+		}
+
+		u32 ImGuiModifiersToMask(ImGuiKeyChord mods)
+		{
+			u32 mask = 0;
+			if (mods & ImGuiMod_Ctrl) mask |= 1u << 0;
+			if (mods & ImGuiMod_Shift) mask |= 1u << 1;
+			if (mods & ImGuiMod_Alt) mask |= 1u << 2;
+			if (mods & ImGuiMod_Super) mask |= 1u << 3;
+			return mask;
+		}
+
+		// NOTE: Matches InputModifierBehavior::Relaxed: all required modifiers must be down, extra modifiers are fine.
+		b8 ArePollModifiersDown(u32 modifierMask)
+		{
+			if ((modifierMask & (1u << 0)) && !(GetAsyncKeyState(0x11) & 0x8000)) return false; // VK_CONTROL
+			if ((modifierMask & (1u << 1)) && !(GetAsyncKeyState(0x10) & 0x8000)) return false; // VK_SHIFT
+			if ((modifierMask & (1u << 2)) && !(GetAsyncKeyState(0x12) & 0x8000)) return false; // VK_MENU
+			if ((modifierMask & (1u << 3)) && !(GetAsyncKeyState(0x5B) & 0x8000) && !(GetAsyncKeyState(0x5C) & 0x8000)) return false; // VK_LWIN / VK_RWIN
+			return true;
+		}
+	}
 	void ChartPlaytest::Start(ChartContext& context)
 	{
 		Start(context, context.GetCursorBeat());
@@ -55,6 +109,7 @@ namespace PeepoDrumKit
 
 		context.SetCursorBeat(leadInStartBeat);
 		BeginPlayback(context);
+		StartInputPollThread(context);
 	}
 
 	void ChartPlaytest::Restart(ChartContext& context)
@@ -83,6 +138,8 @@ namespace PeepoDrumKit
 		context.PlaybackLeadInActive = false;
 		IsActive = false;
 		IsPaused = false;
+		InputPollEnabled.store(false, std::memory_order_release);
+		StopInputPollThread();
 		// NOTE: Keep the score data (combo, hits, etc.) visible after the playtest ends
 		IsFinished = true;
 		LastJudgment = Judgment::None;
@@ -97,6 +154,7 @@ namespace PeepoDrumKit
 		if (context.GetIsPlayback())
 			context.SetIsPlayback(false);
 		IsPaused = true;
+		InputPollEnabled.store(false, std::memory_order_release);
 		CurrentTime = context.GetCursorTime();
 	}
 
@@ -183,6 +241,15 @@ namespace PeepoDrumKit
 
 		CurrentTime = context.GetCursorTime();
 
+		// NOTE: Apply judgement for hits detected by the high-frequency input polling thread (the sound for these
+		//		 was already played immediately by the polling thread, so don't play it again here).
+		{
+			std::scoped_lock lock(PendingHitsMutex);
+			for (const b8 isKa : PendingHits)
+				OnHit(context, isKa, false);
+			PendingHits.clear();
+		}
+
 		ChartCourse& course = *context.ChartSelectedCourse;
 		const SortedNotesList& notes = course.GetNotes(context.ChartSelectedBranch);
 		const f64 okWindowSec = Time::FromMS(*Settings.General.PlaytestJudgementWindowOkMS).Seconds;
@@ -237,7 +304,7 @@ namespace PeepoDrumKit
 			Stop(context);
 	}
 
-	void ChartPlaytest::OnHit(ChartContext& context, b8 isKa)
+	void ChartPlaytest::OnHit(ChartContext& context, b8 isKa, b8 playSound)
 	{
 		if (!IsActive || IsPaused)
 			return;
@@ -263,7 +330,8 @@ namespace PeepoDrumKit
 				: headTime;
 			if (now < headTime || now > tailTime) continue;
 
-			context.SfxVoicePool.PlaySound(isKa ? SoundEffectType::TaikoKa : SoundEffectType::TaikoDon);
+			if (playSound)
+				context.SfxVoicePool.PlaySound(isKa ? SoundEffectType::TaikoKa : SoundEffectType::TaikoDon);
 			state.LastHitTime = now;
 
 			if (IsDrumrollNote(note.Type))
@@ -317,13 +385,15 @@ namespace PeepoDrumKit
 		if (bestNote == nullptr)
 		{
 			// NOTE: Ghost hit, play the sound but don't change judgement
-			context.SfxVoicePool.PlaySound(isKa ? SoundEffectType::TaikoKa : SoundEffectType::TaikoDon);
+			if (playSound)
+				context.SfxVoicePool.PlaySound(isKa ? SoundEffectType::TaikoKa : SoundEffectType::TaikoDon);
 			return;
 		}
 
 		auto& bestState = NoteStates[bestNote];
 		const Time noteTime = course.TempoMap.BeatToTime(bestNote->BeatTime) + bestNote->TimeOffset;
-		context.SfxVoicePool.PlaySound(isKa ? SoundEffectType::TaikoKa : SoundEffectType::TaikoDon);
+		if (playSound)
+			context.SfxVoicePool.PlaySound(isKa ? SoundEffectType::TaikoKa : SoundEffectType::TaikoDon);
 
 		const Judgment judgment = (bestDeltaSec <= goodWindowSec) ? Judgment::Good : Judgment::Ok;
 		RegisterNoteHit(context, judgment, now);
@@ -331,5 +401,95 @@ namespace PeepoDrumKit
 		bestState.IsHit = true;
 		bestState.HitTime = now;
 		bestState.LastHitTime = now;
+	}
+
+	ChartPlaytest::~ChartPlaytest()
+	{
+		StopInputPollThread();
+	}
+
+	void ChartPlaytest::StartInputPollThread(ChartContext& context)
+	{
+		StopInputPollThread();
+
+		// NOTE: Only the plain-keyboard slots are polled. Any slot that isn't a mappable keyboard key (i.e. mouse
+		//		 buttons) means the whole binding falls back to the frame-rate `IsAnyPressed` input path instead.
+		auto collectSlots = [](const MultiInputBinding& binding, std::vector<InputPollSlot>& outSlots) -> b8
+		{
+			outSlots.clear();
+			b8 allCovered = true;
+			for (const InputBinding& slot : binding)
+			{
+				if (slot.Type != InputBindingType::Keyboard)
+				{
+					allCovered = false;
+					continue;
+				}
+				const u32 virtualKey = ImGuiKeyToVirtualKey(static_cast<ImGuiKey>(slot.KeyOrButton));
+				if (virtualKey == 0)
+				{
+					allCovered = false;
+					continue;
+				}
+				InputPollSlot pollSlot;
+				pollSlot.VirtualKey = virtualKey;
+				pollSlot.ModifierMask = ImGuiModifiersToMask(slot.KeyModifiers());
+				// NOTE: Don't fire on keys already held down when the playtest starts
+				pollSlot.PrevDown = (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+				outSlots.push_back(pollSlot);
+			}
+			return allCovered && !outSlots.empty();
+		};
+
+		InputPollDonCovered = collectSlots(*Settings.Input.Playtest_HitDon, InputPollDonSlots);
+		InputPollKaCovered = collectSlots(*Settings.Input.Playtest_HitKa, InputPollKaSlots);
+
+		if (InputPollDonSlots.empty() && InputPollKaSlots.empty())
+			return;
+
+		InputPollRunning.store(true, std::memory_order_release);
+		InputPollThread = std::thread(&ChartPlaytest::InputPollThreadMain, this, &context.SfxVoicePool);
+	}
+
+	void ChartPlaytest::StopInputPollThread()
+	{
+		InputPollRunning.store(false, std::memory_order_release);
+		if (InputPollThread.joinable())
+			InputPollThread.join();
+		{
+			std::scoped_lock lock(PendingHitsMutex);
+			PendingHits.clear();
+		}
+	}
+
+	void ChartPlaytest::InputPollThreadMain(SoundEffectsVoicePool* sfxPool)
+	{
+		// NOTE: Raise the global timer resolution so the ~1ms sleep below actually sleeps ~1ms instead of ~15.6ms
+		::timeBeginPeriod(1);
+		::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+		defer { ::timeEndPeriod(1); };
+
+		while (InputPollRunning.load(std::memory_order_acquire))
+		{
+			const b8 enabled = InputPollEnabled.load(std::memory_order_acquire);
+			auto updateSlot = [&](InputPollSlot& slot, b8 isKa)
+			{
+				const b8 isDown = ((GetAsyncKeyState(slot.VirtualKey) & 0x8000) != 0) && ArePollModifiersDown(slot.ModifierMask);
+				if (enabled && isDown && !slot.PrevDown)
+				{
+					if (sfxPool != nullptr)
+						sfxPool->PlaySound(isKa ? SoundEffectType::TaikoKa : SoundEffectType::TaikoDon);
+					{
+						std::scoped_lock lock(PendingHitsMutex);
+						PendingHits.push_back(isKa);
+					}
+				}
+				slot.PrevDown = isDown;
+			};
+
+			for (auto& slot : InputPollDonSlots) updateSlot(slot, false);
+			for (auto& slot : InputPollKaSlots) updateSlot(slot, true);
+			::Sleep(1);
+		}
 	}
 }

@@ -820,7 +820,9 @@ namespace PeepoDrumKit
 					}
 					else if (IsBalloonNote(it.OriginalNote->Type)) {
 						if (isHit && !isCompleted && !isMissed) {
-							// NOTE: Keep the full note length visible like in the normal game view (don't clamp the head to the judgement mark, which would shrink it)
+							// NOTE: Pin the balloon head to the judgement mark like in the normal game view while it's being
+							//		 popped, keeping the full tail length visible so the remaining hit count stays on screen
+							laneHead = hitCirclePosLane;
 							isVisible = Camera.IsRangeVisibleOnLane(Min(laneHead.x, laneTail.x), Max(laneHead.x, laneTail.x));
 						}
 						else if (isCompleted)

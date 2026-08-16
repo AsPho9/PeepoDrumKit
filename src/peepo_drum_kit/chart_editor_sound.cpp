@@ -76,13 +76,27 @@ namespace PeepoDrumKit
 
 	void SoundEffectsVoicePool::PlaySound(SoundEffectType type, Time startTime, std::optional<Time> externalClock, f32 pan)
 	{
+		const std::scoped_lock lock(PlayMutex);
 		Audio::Engine.EnsureStreamRunning();
 		const b8 isMetronome = (type >= SoundEffectType::MetronomeBar);
 		const SoundGroup soundGroup = isMetronome ? SoundGroup::Metronome : SoundGroup::SoundEffects;
 		const b8 audible = (GetSoundGroupVolume(soundGroup) != 0) && (GetSoundGroupVolume(SoundGroup::Master) != 0);
 		if (audible)
 		{
+			// NOTE: Prefer a voice that isn't currently playing so very fast consecutive hits don't cut off an
+			//		 ongoing sound (which sounds like clicking/smearing). Only fall back to the ring buffer when
+			//		 every voice is busy. Search starts from the ring index so voices are still reused fairly.
 			Audio::Voice voice = VoicePool[VoicePoolRingIndex];
+			for (i32 i = 0; i < (i32)VoicePoolSize; i++)
+			{
+				const Audio::Voice candidate = VoicePool[(VoicePoolRingIndex + i) % VoicePoolSize];
+				if (!candidate.GetIsPlaying())
+				{
+					voice = candidate;
+					break;
+				}
+			}
+
 			voice.SetSource(TryGetSourceForType(type));
 			voice.SetSoundGroup(EnumToIndex(soundGroup));
 			voice.SetPosition(startTime);
@@ -98,6 +112,7 @@ namespace PeepoDrumKit
 
 	void SoundEffectsVoicePool::PauseAllFutureVoices()
 	{
+		const std::scoped_lock lock(PlayMutex);
 		for (auto& voice : VoicePool)
 		{
 			if (voice.GetIsPlaying() && voice.GetPosition() < Time::Zero())
