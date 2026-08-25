@@ -9,24 +9,39 @@ namespace PeepoDrumKit
 		assert(!LoadSoundEffectFuture.valid());
 		LoadSoundEffectFuture = std::async(std::launch::async, []() -> AsyncLoadSoundEffectsResult
 		{
-			AsyncLoadSoundEffectsResult result {};
-			for (size_t i = 0; i < EnumCount<SoundEffectType>; i++)
+		AsyncLoadSoundEffectsResult result {};
+		for (size_t i = 0; i < EnumCount<SoundEffectType>; i++)
+		{
+			auto& resultBuffer = result.SampleBuffers[i];
+			std::string& resultFilePath = result.FilePaths[i];
+
+			// NOTE: Try each supported audio format extension in order and load the first matching file
+			for (size_t f = 0; f < EnumCount<Audio::SupportedFileFormat> && resultFilePath.empty(); f++)
 			{
-				const std::string_view inFilePath = SoundEffectTypeFilePaths[i];
-				auto& resultBuffer = result.SampleBuffers[i];
+				const std::string candidatePath = std::string(SoundEffectTypeFileBaseNames[i]) + Audio::SupportedFileFormatExtensions[f];
+				if (File::Exists(candidatePath))
+					resultFilePath = std::move(candidatePath);
+			}
 
-				auto[fileContent, fileSize] = File::ReadAllBytes(inFilePath);
-				if (fileContent == nullptr || fileSize == 0)
-				{
-					printf("Failed to read file '%.*s'\n", FmtStrViewArgs(inFilePath));
-					continue;
-				}
+			if (resultFilePath.empty())
+			{
+				printf("Failed to find sound effect file '%s' with any supported extension (%s)\n", SoundEffectTypeFileBaseNames[i], Audio::SupportedFileFormatExtensionsPacked);
+				continue;
+			}
 
-				if (Audio::DecodeEntireFile(inFilePath, fileContent.get(), fileSize, resultBuffer) != Audio::DecodeFileResult::FeelsGoodMan)
-				{
-					printf("Failed to decode audio file '%.*s'\n", FmtStrViewArgs(inFilePath));
-					continue;
-				}
+			const std::string_view inFilePath = resultFilePath;
+			auto[fileContent, fileSize] = File::ReadAllBytes(inFilePath);
+			if (fileContent == nullptr || fileSize == 0)
+			{
+				printf("Failed to read file '%.*s'\n", FmtStrViewArgs(inFilePath));
+				continue;
+			}
+
+			if (Audio::DecodeEntireFile(inFilePath, fileContent.get(), fileSize, resultBuffer) != Audio::DecodeFileResult::FeelsGoodMan)
+			{
+				printf("Failed to decode audio file '%.*s'\n", FmtStrViewArgs(inFilePath));
+				continue;
+			}
 
 				// HACK: ...
 				if (resultBuffer.SampleRate != Audio::Engine.OutputSampleRate)
@@ -47,12 +62,12 @@ namespace PeepoDrumKit
 	{
 		if (LoadSoundEffectFuture.valid() && LoadSoundEffectFuture._Is_ready())
 		{
-			AsyncLoadSoundEffectsResult loadResult = LoadSoundEffectFuture.get();
-			for (size_t i = 0; i < EnumCount<SoundEffectType>; i++)
-			{
-				if (loadResult.SampleBuffers[i].InterleavedSamples != nullptr)
-					LoadedSources[i] = Audio::Engine.LoadSourceFromBufferMove(Path::GetFileName(SoundEffectTypeFilePaths[i]), std::move(loadResult.SampleBuffers[i]));
-			}
+		AsyncLoadSoundEffectsResult loadResult = LoadSoundEffectFuture.get();
+		for (size_t i = 0; i < EnumCount<SoundEffectType>; i++)
+		{
+			if (loadResult.SampleBuffers[i].InterleavedSamples != nullptr)
+				LoadedSources[i] = Audio::Engine.LoadSourceFromBufferMove(Path::GetFileName(loadResult.FilePaths[i]), std::move(loadResult.SampleBuffers[i]));
+		}
 		}
 	}
 
@@ -100,7 +115,7 @@ namespace PeepoDrumKit
 			voice.SetSource(TryGetSourceForType(type));
 			voice.SetSoundGroup(EnumToIndex(soundGroup));
 			voice.SetPosition(startTime);
-			voice.SetVolume(1.0);
+			voice.SetVolume(1.0f);
 			voice.SetPan(pan);
 			voice.SetIsPlaying(true);
 

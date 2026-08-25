@@ -111,8 +111,6 @@ namespace Audio
 		u32 CurrentBufferFrameSize = DefaultBufferFrameCount;
 		u32 TargetBufferFrameSize = DefaultBufferFrameCount;
 
-		std::array<VolumeLimiterFX<f32>, MaxSoundGroups> Limiter = InitializedArray<VolumeLimiterFX<f32>, MaxSoundGroups>(OutputSampleRate);
-
 		// TODO: Rename "CallbackDuration" to "RenderDuration" (?)
 		// NOTE: For measuring performance
 		size_t CallbackDurationRingIndex = 0;
@@ -386,27 +384,14 @@ namespace Audio
 		}
 
 		template <typename T>
-		void CallbackAdjustVolumeAndMix(T* outputBuffer, f32* mixedBuffer, const size_t frameCount, f32 preGain, f32 postGain, i32 soundGroup)
+		void CallbackAdjustVolumeAndMix(T* outputBuffer, f32* mixedBuffer, const size_t frameCount, f32 preGain, f32 postGain)
 		{
-			const f32 limitMin = (std::is_integral_v<T> || soundGroup == 0) ? I16Min : SoundGroupVolumeLimit * I16Min;
-			const f32 limitMax = (std::is_integral_v<T> || soundGroup == 0) ? I16Max : SoundGroupVolumeLimit * I16Max;
-			std::array<f32, OutputChannelCount> frame;
-			for (size_t f = 0, i = 0; f < frameCount; ++f) {
-				// get gain for all channels first
-				f32 frameMaxValue = 0;
-				for (i32 c = 0; c < OutputChannelCount; ++c) {
-					frame[c] = mixedBuffer[i + c] * preGain;
-					if (std::abs(frame[c]) > std::abs(frameMaxValue))
-						frameMaxValue = frame[c];
-				}
-				auto gain = Limiter[soundGroup].GetGain(frameMaxValue, limitMin, limitMax);
-				// apply gain
-				for (i32 c = 0; c < OutputChannelCount; ++c, ++i) {
-					if constexpr (std::is_integral_v<T>)
-						outputBuffer[i] += ClampSampleI<T>(frame[c] * gain * postGain);
-					else
-						outputBuffer[i] += frame[c] * gain * postGain;
-				}
+			for (size_t i = 0, n = (frameCount * OutputChannelCount); i < n; ++i)
+			{
+				if constexpr (std::is_integral_v<T>)
+					outputBuffer[i] += ClampSampleI<T>(mixedBuffer[i] * preGain * postGain);
+				else
+					outputBuffer[i] += mixedBuffer[i] * preGain * postGain;
 			}
 		}
 
@@ -468,12 +453,12 @@ namespace Audio
 			for (i32 g = 1; g < MaxSoundGroups; ++g) {
 				CallbackClearOutBuffer(SoundGroupBuffer.data(), bufferSampleCount);
 				CallbackProcessVoices(SoundGroupBuffer.data(), bufferFrameCount, bufferSampleCount, g);
-				CallbackAdjustVolumeAndMix(MasterBuffer.data(), SoundGroupBuffer.data(), bufferFrameCount, 1, SoundGroupVolume[g], g);
+				CallbackAdjustVolumeAndMix(MasterBuffer.data(), SoundGroupBuffer.data(), bufferFrameCount, 1, SoundGroupVolume[g]);
 			}
 
 			// sound group 0 (or any invalid group) renders directly to master
 			CallbackProcessVoices(MasterBuffer.data(), bufferFrameCount, bufferSampleCount, 0);
-			CallbackAdjustVolumeAndMix(outputBuffer, MasterBuffer.data(), bufferFrameCount, SoundGroupVolume[0], 1, 0);
+			CallbackAdjustVolumeAndMix(outputBuffer, MasterBuffer.data(), bufferFrameCount, SoundGroupVolume[0], 1);
 			CallbackUpdateLastPlayedSamplesRingBuffer(outputBuffer, bufferFrameCount);
 			CallbackUpdateCallbackDurationRingBuffer(stopwatch.Stop());
 		}
