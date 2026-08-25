@@ -3,6 +3,7 @@
 #include "audio/audio_engine.h"
 #include <mutex>
 #include <optional>
+#include <string>
 
 namespace PeepoDrumKit
 {
@@ -15,18 +16,21 @@ namespace PeepoDrumKit
 		Count
 	};
 
-	static constexpr cstr SoundEffectTypeFilePaths[] =
+	// NOTE: Extension-less paths. At load time each of the supported audio format extensions (.ogg/.wav/.flac/.mp3)
+	//		 is probed and the first matching file gets loaded - so every sound effect can use any supported format.
+	static constexpr cstr SoundEffectTypeFileBaseNames[] =
 	{
-		u8"assets/audio/taiko_don_16bit_44100.wav",
-		u8"assets/audio/taiko_ka_16bit_44100.wav",
-		u8"assets/audio/metronome_bar_16bit_44100.wav",
-		u8"assets/audio/metronome_beat_16bit_44100.wav",
+		u8"assets/audio/taiko_don",
+		u8"assets/audio/taiko_ka",
+		u8"assets/audio/metronome_bar",
+		u8"assets/audio/metronome_beat",
 	};
 
-	static_assert(ArrayCount(SoundEffectTypeFilePaths) == EnumCount<SoundEffectType>);
+	static_assert(ArrayCount(SoundEffectTypeFileBaseNames) == EnumCount<SoundEffectType>);
 
 	struct AsyncLoadSoundEffectsResult
 	{
+		std::string FilePaths[EnumCount<SoundEffectType>];
 		Audio::PCMSampleBuffer SampleBuffers[EnumCount<SoundEffectType>];
 	};
 
